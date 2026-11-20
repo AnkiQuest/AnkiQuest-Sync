@@ -5,7 +5,7 @@
     "kind": "branch",
     "target": "AnkiQuest/anki",
     "why": "FSRS-7 and the RWKV engine, carried on our ankiquest branch",
-    "reviewed": "4ae68fa860f989bd30a67faec4f98cdd455ad9d4"
+    "reviewed": "7259f40e12c78646da75b548f7129baeef93d4cb"
   },
   {
     "source": "JSchoreels/fsrs-rs",
