@@ -1,0 +1,27 @@
+# Lints the workflows and checks the flake on pull requests and on master.
+name: Check
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+  merge_group:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: cachix/install-nix-action@3dc140bfc76c49fbd4dd958429132e3746bcb086 # v31
+        with:
+          extra_nix_config: |
+            experimental-features = nix-command flakes
+      - run: nix flake check
+      - run: nix develop -c actionlint
+      - run: nix develop -c jq empty watched.json

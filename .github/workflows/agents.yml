@@ -4,8 +4,7 @@
 # its first line. Where either file differs from the repository's branch, the job
 # pushes branch agents-sync there and opens (or updates) one pull request.
 #
-# TARGETS: repository -> the branch AGENTS.md lives on. For the mirror forks that is
-# ankiquest, not main, which only the sync job writes.
+# TARGETS: the repositories; AGENTS.md lives on each one's master.
 #
 # FORK_SYNC_TOKEN: see sync.yml; it also needs Contents and Pull requests read and
 # write on every repository in TARGETS, and Contents read on AnkiQuest-Agents.
@@ -29,19 +28,19 @@ concurrency:
 
 env:
   TARGETS: |
-    {
-      "AnkiQuest/AnkiQuest-Server": "master",
-      "AnkiQuest/AnkiQuest-Desktop": "master",
-      "AnkiQuest/AnkiQuest-Android": "main",
-      "AnkiQuest/anki": "ankiquest",
-      "AnkiQuest/AnkiQuest-Android-Backend": "ankiquest",
-      "AnkiQuest/garmankiquest": "master",
-      "AnkiQuest/ankiquest-android-mcp": "main",
-      "AnkiQuest/AnkiQuestconnectAndroid": "master",
-      "AnkiQuest/AnkiQuest-Sync": "main",
-      "AnkiQuest/AnkiQuest-Agents": "main",
-      "AnkiQuest/AnkiQuest-Dev": "main"
-    }
+    [
+      "AnkiQuest/AnkiQuest-Server",
+      "AnkiQuest/AnkiQuest-Desktop",
+      "AnkiQuest/AnkiQuest-Android",
+      "AnkiQuest/AnkiQuest-Anki",
+      "AnkiQuest/AnkiQuest-Android-Backend",
+      "AnkiQuest/AnkiQuest-GarmAnki",
+      "AnkiQuest/AnkiQuest-Android-MCP",
+      "AnkiQuest/AnkiQuest-AnkiConnectAndroid",
+      "AnkiQuest/AnkiQuest-Dev",
+      "AnkiQuest/AnkiQuest-Sync",
+      "AnkiQuest/AnkiQuest-Agents"
+    ]
 
 jobs:
   agents:
@@ -60,7 +59,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: AnkiQuest/AnkiQuest-Agents
-          ref: main
+          ref: master
           path: source
           token: ${{ secrets.FORK_SYNC_TOKEN }}
           persist-credentials: false
@@ -73,8 +72,8 @@ jobs:
           source_sha=$(git -C source rev-parse HEAD)
           failed=0
 
-          for repo in $(jq -r 'keys[]' <<<"$TARGETS"); do
-            branch=$(jq -r --arg r "$repo" '.[$r]' <<<"$TARGETS")
+          branch=master
+          for repo in $(jq -r '.[]' <<<"$TARGETS"); do
             section="source/repos/${repo#*/}.md"
             if [ ! -f "$section" ]; then
               echo "::error::$repo has no $section"; failed=1; continue
