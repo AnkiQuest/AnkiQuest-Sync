@@ -1,9 +1,9 @@
-# Lints the workflows and checks the flake on pull requests and on main.
+# Lints the workflows and checks the flake on pull requests and on master.
 name: Check
 
 on:
   push:
-    branches: [main]
+    branches: [master]
   pull_request:
   merge_group:
 
