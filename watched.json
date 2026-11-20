@@ -1,0 +1,60 @@
+[
+  {
+    "source": "JSchoreels/anki",
+    "ref": "main",
+    "kind": "branch",
+    "target": "AnkiQuest/anki",
+    "why": "FSRS-7 and the RWKV engine, carried on our ankiquest branch",
+    "reviewed": "4ae68fa860f989bd30a67faec4f98cdd455ad9d4"
+  },
+  {
+    "source": "JSchoreels/fsrs-rs",
+    "ref": "main",
+    "kind": "branch",
+    "target": "AnkiQuest/anki",
+    "why": "the fsrs-rs fork FSRS-7 depends on (Cargo.toml pins a commit)",
+    "reviewed": "bd8932bb33d68bf0ac0e4367b154eec837f7fad2"
+  },
+  {
+    "source": "open-spaced-repetition/fsrs-rs",
+    "ref": "main",
+    "kind": "branch",
+    "target": "AnkiQuest/anki",
+    "why": "upstream of JSchoreels/fsrs-rs",
+    "reviewed": "9fb03928d8c8fd84f5b9df2b2f6ddc631e6cae81"
+  },
+  {
+    "source": "Pedrubik2000/kuma3-anki-core",
+    "ref": "rwkv",
+    "kind": "branch",
+    "target": "AnkiQuest/anki",
+    "why": "kuma3's offline RWKV scheduler, carried on our ankiquest branch",
+    "reviewed": "a8cf880ce2907229d2edcadcd6977d855b7954a8"
+  },
+  {
+    "source": "Pedrubik2000/kuma3-anki-backend",
+    "ref": "rwkv",
+    "kind": "branch",
+    "target": "AnkiQuest/AnkiQuest-Android-Backend",
+    "why": "kuma3's backend wiring, carried on our ankiquest branch",
+    "reviewed": "51529af2cad1f7d11e4be3c1b78f1ad956d33b03"
+  },
+  {
+    "source": "Pedrubik2000/kuma3-anki-app",
+    "ref": "rwkv",
+    "kind": "branch",
+    "target": "AnkiQuest/AnkiQuest-Android",
+    "why": "kuma3's app side of RWKV (RwkvOffline.kt, deck options)",
+    "reviewed": "8c2bd5300cdbcf9e70f1b26b0b61c06190aca71e"
+  },
+  {
+    "source": "ankidroid/Anki-Android-Backend",
+    "ref": "main",
+    "kind": "version",
+    "file": "gradle.properties",
+    "key": "VERSION_NAME",
+    "target": "AnkiQuest/AnkiQuest-Android-Backend",
+    "why": "a new upstream backend version: merge its Anki release into AnkiQuest/anki ankiquest and the backend's ankiquest branch, then publish",
+    "reviewed": "0.1.77-anki26.09.4"
+  }
+]
