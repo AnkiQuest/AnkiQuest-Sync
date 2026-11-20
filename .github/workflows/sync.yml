@@ -1,11 +1,8 @@
 # Keeps AnkiQuest's forks up to date with their upstream repositories.
 #
-#   mirror: the fork's branch is a pure copy of upstream. It is fast-forwarded through
-#           GitHub's sync-fork API; if it has commits of its own, an issue is opened and
-#           nothing is pushed.
-#   pr:     the fork's branch carries our own changes. A pull request from upstream's
-#           branch into it is opened (or kept open); it lists conflicting files. Merge it
-#           with a merge commit so the fork keeps upstream's history.
+# Each fork's master carries upstream plus our changes. A pull request from upstream's
+# default branch into master is opened (or kept open); it lists conflicting files. Merge
+# it with a merge commit so the fork keeps upstream's history.
 #
 # watch (watched.json): other sources our branches carry changes from (FSRS-7, kuma3, a
 # new upstream backend version). Their changes need porting by hand, so each source with
@@ -33,19 +30,19 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { fork: AnkiQuest/AnkiQuest-Android, branch: main, upstream: ankidroid/Anki-Android, upstream_branch: main, mode: pr }
-          - { fork: AnkiQuest/anki, branch: main, upstream: ankitects/anki, upstream_branch: main, mode: mirror }
-          - { fork: AnkiQuest/AnkiQuest-Android-Backend, branch: main, upstream: ankidroid/Anki-Android-Backend, upstream_branch: main, mode: mirror }
-          - { fork: AnkiQuest/garmankiquest, branch: master, upstream: sypianski/garmanki, upstream_branch: master, mode: pr }
-          - { fork: AnkiQuest/ankiquest-android-mcp, branch: main, upstream: ankimcp/ankidroid-mcp, upstream_branch: main, mode: pr }
-          - { fork: AnkiQuest/AnkiQuestconnectAndroid, branch: master, upstream: KamWithK/AnkiconnectAndroid, upstream_branch: master, mode: pr }
+          - { fork: AnkiQuest/AnkiQuest-Android, upstream: ankidroid/Anki-Android, upstream_branch: main }
+          - { fork: AnkiQuest/AnkiQuest-Anki, upstream: ankitects/anki, upstream_branch: main }
+          - { fork: AnkiQuest/AnkiQuest-Android-Backend, upstream: ankidroid/Anki-Android-Backend, upstream_branch: main }
+          - { fork: AnkiQuest/AnkiQuest-GarmAnki, upstream: sypianski/garmanki, upstream_branch: master }
+          - { fork: AnkiQuest/AnkiQuest-Android-MCP, upstream: ankimcp/ankidroid-mcp, upstream_branch: main }
+          - { fork: AnkiQuest/AnkiQuest-AnkiConnectAndroid, upstream: KamWithK/AnkiconnectAndroid, upstream_branch: master }
     concurrency:
       group: sync-${{ matrix.fork }}
       cancel-in-progress: false
     env:
       GH_TOKEN: ${{ secrets.FORK_SYNC_TOKEN }}
       FORK: ${{ matrix.fork }}
-      BRANCH: ${{ matrix.branch }}
+      BRANCH: master
       UPSTREAM: ${{ matrix.upstream }}
       UPSTREAM_BRANCH: ${{ matrix.upstream_branch }}
     steps:
@@ -56,48 +53,23 @@ jobs:
             exit 1
           fi
 
-      # upstream_new: upstream commits the fork lacks; fork_own: fork commits upstream lacks
+      # upstream_new: upstream commits the fork lacks
       - name: Compare with upstream
         id: compare
         run: |
           owner="${UPSTREAM%%/*}"
-          cmp=$(gh api "repos/$FORK/compare/$BRANCH...$owner:$UPSTREAM_BRANCH")
-          echo "upstream_new=$(jq .ahead_by <<<"$cmp")" >> "$GITHUB_OUTPUT"
-          echo "fork_own=$(jq .behind_by <<<"$cmp")" >> "$GITHUB_OUTPUT"
-
-      - name: Fast-forward the mirror
-        if: matrix.mode == 'mirror' && steps.compare.outputs.upstream_new != '0'
-        env:
-          FORK_OWN: ${{ steps.compare.outputs.fork_own }}
-          UPSTREAM_NEW: ${{ steps.compare.outputs.upstream_new }}
-        run: |
-          # A mirror with commits of its own is not fast-forwarded: report it once
-          if [ "$FORK_OWN" != "0" ]; then
-            title="$BRANCH has diverged from $UPSTREAM"
-            if [ -z "$(gh issue list --repo "$FORK" --state open --search "\"$title\" in:title" --json number --jq '.[0].number')" ]; then
-              gh issue create --repo "$FORK" --title "$title" \
-                --body "$BRANCH is meant to mirror $UPSTREAM $UPSTREAM_BRANCH, but has $FORK_OWN commits of its own. Move them to another branch and reset $BRANCH to upstream; the sync job (AnkiQuest/AnkiQuest-Sync) does not force-push."
-            fi
-            echo "::error::$FORK $BRANCH has $FORK_OWN commits not in upstream"
-            exit 1
-          fi
-          kind=$(gh api -X POST "repos/$FORK/merge-upstream" -f branch="$BRANCH" --jq .merge_type)
-          if [ "$kind" != "fast-forward" ]; then
-            echo "::error::expected a fast-forward, GitHub did: $kind"
-            exit 1
-          fi
-          echo "$FORK $BRANCH fast-forwarded by $UPSTREAM_NEW commits" >> "$GITHUB_STEP_SUMMARY"
+          echo "upstream_new=$(gh api "repos/$FORK/compare/$BRANCH...$owner:$UPSTREAM_BRANCH" --jq .ahead_by)" >> "$GITHUB_OUTPUT"
 
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        if: matrix.mode == 'pr' && steps.compare.outputs.upstream_new != '0'
+        if: steps.compare.outputs.upstream_new != '0'
         with:
           repository: ${{ matrix.fork }}
-          ref: ${{ matrix.branch }}
+          ref: master
           token: ${{ secrets.FORK_SYNC_TOKEN }}
           fetch-depth: 0
 
       - name: Open the upstream pull request
-        if: matrix.mode == 'pr' && steps.compare.outputs.upstream_new != '0'
+        if: steps.compare.outputs.upstream_new != '0'
         env:
           UPSTREAM_NEW: ${{ steps.compare.outputs.upstream_new }}
         run: |

@@ -3,15 +3,15 @@
     "source": "JSchoreels/anki",
     "ref": "main",
     "kind": "branch",
-    "target": "AnkiQuest/anki",
-    "why": "FSRS-7 and the RWKV engine, carried on our ankiquest branch",
+    "target": "AnkiQuest/AnkiQuest-Anki",
+    "why": "FSRS-7 and the RWKV engine, carried on our master",
     "reviewed": "7259f40e12c78646da75b548f7129baeef93d4cb"
   },
   {
     "source": "JSchoreels/fsrs-rs",
     "ref": "main",
     "kind": "branch",
-    "target": "AnkiQuest/anki",
+    "target": "AnkiQuest/AnkiQuest-Anki",
     "why": "the fsrs-rs fork FSRS-7 depends on (Cargo.toml pins a commit)",
     "reviewed": "bd8932bb33d68bf0ac0e4367b154eec837f7fad2"
   },
@@ -19,7 +19,7 @@
     "source": "open-spaced-repetition/fsrs-rs",
     "ref": "main",
     "kind": "branch",
-    "target": "AnkiQuest/anki",
+    "target": "AnkiQuest/AnkiQuest-Anki",
     "why": "upstream of JSchoreels/fsrs-rs",
     "reviewed": "9fb03928d8c8fd84f5b9df2b2f6ddc631e6cae81"
   },
@@ -27,8 +27,8 @@
     "source": "Pedrubik2000/kuma3-anki-core",
     "ref": "rwkv",
     "kind": "branch",
-    "target": "AnkiQuest/anki",
-    "why": "kuma3's offline RWKV scheduler, carried on our ankiquest branch",
+    "target": "AnkiQuest/AnkiQuest-Anki",
+    "why": "kuma3's offline RWKV scheduler, carried on our master",
     "reviewed": "a8cf880ce2907229d2edcadcd6977d855b7954a8"
   },
   {
@@ -36,7 +36,7 @@
     "ref": "rwkv",
     "kind": "branch",
     "target": "AnkiQuest/AnkiQuest-Android-Backend",
-    "why": "kuma3's backend wiring, carried on our ankiquest branch",
+    "why": "kuma3's backend wiring, carried on our master",
     "reviewed": "51529af2cad1f7d11e4be3c1b78f1ad956d33b03"
   },
   {
@@ -54,7 +54,7 @@
     "file": "gradle.properties",
     "key": "VERSION_NAME",
     "target": "AnkiQuest/AnkiQuest-Android-Backend",
-    "why": "a new upstream backend version: merge its Anki release into AnkiQuest/anki ankiquest and the backend's ankiquest branch, then publish",
+    "why": "a new upstream backend version: merge the sync pull requests in AnkiQuest-Anki and AnkiQuest-Android-Backend, move the submodule, then publish",
     "reviewed": "0.1.77-anki26.09.4"
   }
 ]
