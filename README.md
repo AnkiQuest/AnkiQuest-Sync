@@ -48,3 +48,7 @@ Needs the secret `FORK_SYNC_TOKEN`: a fine-grained token for the AnkiQuest
 organisation with Contents, Workflows, Pull requests and Issues read and write
 on the six forks, Contents and Pull requests read and write on the other
 repositories in `TARGETS`, and Contents read on AnkiQuest-Agents.
+
+## Licence
+
+AGPL-3.0-or-later ([LICENSE](LICENSE)).
