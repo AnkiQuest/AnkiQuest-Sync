@@ -4,7 +4,7 @@
 # its first line. Where either file differs from the repository's branch, the job
 # pushes branch agents-sync there and opens (or updates) one pull request.
 #
-# TARGETS: the repositories; AGENTS.md lives on each one's master.
+# TARGETS: the repositories; AGENTS.md lives on each one's default branch.
 #
 # FORK_SYNC_TOKEN: see sync.yml; it also needs Contents and Pull requests read and
 # write on every repository in TARGETS, and Contents read on AnkiQuest-Agents.
@@ -59,7 +59,6 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: AnkiQuest/AnkiQuest-Agents
-          ref: master
           path: source
           token: ${{ secrets.FORK_SYNC_TOKEN }}
           persist-credentials: false
@@ -72,8 +71,8 @@ jobs:
           source_sha=$(git -C source rev-parse HEAD)
           failed=0
 
-          branch=master
           for repo in $(jq -r '.[]' <<<"$TARGETS"); do
+            branch=$(gh api "repos/$repo" --jq .default_branch)
             section="source/repos/${repo#*/}.md"
             if [ ! -f "$section" ]; then
               echo "::error::$repo has no $section"; failed=1; continue

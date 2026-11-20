@@ -1,7 +1,7 @@
 # Keeps AnkiQuest's forks up to date with their upstream repositories.
 #
-# Each fork's master carries upstream plus our changes. A pull request from upstream's
-# default branch into master is opened (or kept open); it lists conflicting files. Merge
+# Each fork's default branch carries upstream plus our changes. A pull request from
+# upstream's default branch into it is opened (or kept open); it lists conflicting files. Merge
 # it with a merge commit so the fork keeps upstream's history.
 #
 # watch (watched.json): other sources our branches carry changes from (FSRS-7, kuma3, a
@@ -42,7 +42,6 @@ jobs:
     env:
       GH_TOKEN: ${{ secrets.FORK_SYNC_TOKEN }}
       FORK: ${{ matrix.fork }}
-      BRANCH: master
       UPSTREAM: ${{ matrix.upstream }}
       UPSTREAM_BRANCH: ${{ matrix.upstream_branch }}
     steps:
@@ -52,6 +51,10 @@ jobs:
             echo "::error::Set FORK_SYNC_TOKEN (see the comment at the top of this workflow)."
             exit 1
           fi
+
+      # BRANCH: the fork's default branch, read rather than assumed
+      - name: Find the fork's branch
+        run: echo "BRANCH=$(gh api "repos/$FORK" --jq .default_branch)" >> "$GITHUB_ENV"
 
       # upstream_new: upstream commits the fork lacks
       - name: Compare with upstream
@@ -64,7 +67,7 @@ jobs:
         if: steps.compare.outputs.upstream_new != '0'
         with:
           repository: ${{ matrix.fork }}
-          ref: master
+          ref: ${{ env.BRANCH }}
           token: ${{ secrets.FORK_SYNC_TOKEN }}
           fetch-depth: 0
 
