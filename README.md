@@ -21,6 +21,17 @@ Keeps AnkiQuest's forks up to date with upstream, once a day and on demand
 
 The list of forks is the matrix in `.github/workflows/sync.yml`.
 
+## Watched sources
+
+Our `ankiquest` branches also carry changes from sources that aren't our
+upstream: JSchoreels' FSRS-7 fork and fsrs-rs fork, kuma3's RWKV core, backend
+and app, and new upstream backend versions. Their changes need porting by
+hand, so the `watch` job only reports them: for each entry in `watched.json`
+whose source has moved past `reviewed`, it opens (or updates) one issue in the
+fork it feeds, listing the new commits or the new version. After porting or
+skipping them, set that entry's `reviewed` to the reported commit or version;
+the issue closes on the next run.
+
 Needs the secret `FORK_SYNC_TOKEN`: a fine-grained token for the AnkiQuest
 organisation with Contents, Workflows, Pull requests and Issues read and write
 on the six forks.
