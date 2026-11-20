@@ -21,6 +21,19 @@ Keeps AnkiQuest's forks up to date with upstream, once a day and on demand
 
 The list of forks is the matrix in `.github/workflows/sync.yml`.
 
+## AGENTS.md
+
+The `agents` job (`.github/workflows/agents.yml`) writes each repository's
+`AGENTS.md` from [AnkiQuest-Agents](https://github.com/AnkiQuest/AnkiQuest-Agents):
+`shared.md`, a blank line, `repos/<repository>.md`. `CLAUDE.md` becomes
+`@AGENTS.md`; a fork whose upstream has its own `CLAUDE.md` keeps it with
+`@AGENTS.md` as its first line. Where either differs, it pushes branch
+`agents-sync` and opens or updates one pull request, "Update AGENTS.md from
+AnkiQuest-Agents". It runs daily, on demand, and on a `repository_dispatch` of
+type `agents-changed`, which AnkiQuest-Agents sends when its `main` changes.
+The repositories and their branches are the `TARGETS` map in that workflow;
+for the mirror forks the branch is `ankiquest`.
+
 ## Watched sources
 
 Our `ankiquest` branches also carry changes from sources that aren't our
@@ -32,6 +45,14 @@ fork it feeds, listing the new commits or the new version. After porting or
 skipping them, set that entry's `reviewed` to the reported commit or version;
 the issue closes on the next run.
 
+## Token
+
 Needs the secret `FORK_SYNC_TOKEN`: a fine-grained token for the AnkiQuest
 organisation with Contents, Workflows, Pull requests and Issues read and write
-on the six forks.
+on the six forks, Contents and Pull requests read and write on the other
+repositories in `TARGETS`, and Contents read on AnkiQuest-Agents.
+
+Needs the secret `FORK_SYNC_TOKEN`: a fine-grained token for the AnkiQuest
+organisation with Contents, Workflows, Pull requests and Issues read and write
+on the six forks, Contents and Pull requests read and write on the other
+repositories in `TARGETS`, and Contents read on AnkiQuest-Agents.
