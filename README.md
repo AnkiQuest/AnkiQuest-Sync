@@ -3,7 +3,7 @@
 Keeps AnkiQuest's forks up to date with upstream, once a day and on demand
 (Actions, "Sync forks with upstream", Run workflow).
 
-| Fork `master` | Upstream |
+| Fork (default branch) | Upstream |
 |---|---|
 | AnkiQuest/AnkiQuest-Android | ankidroid/Anki-Android `main` |
 | AnkiQuest/AnkiQuest-Anki | ankitects/anki `main` |
@@ -12,7 +12,7 @@ Keeps AnkiQuest's forks up to date with upstream, once a day and on demand
 | AnkiQuest/AnkiQuest-Android-MCP | ankimcp/ankidroid-mcp `main` |
 | AnkiQuest/AnkiQuest-AnkiConnectAndroid | KamWithK/AnkiconnectAndroid `master` |
 
-Each fork's `master` carries upstream plus our changes. The job opens one pull
+Each fork's default branch carries upstream plus our changes. The job opens one pull
 request from upstream's branch, lists conflicting files in the run summary,
 and leaves it open until merged. Merge with a merge commit.
 
@@ -27,13 +27,13 @@ The `agents` job (`.github/workflows/agents.yml`) writes each repository's
 `@AGENTS.md` as its first line. Where either differs, it pushes branch
 `agents-sync` and opens or updates one pull request, "Update AGENTS.md from
 AnkiQuest-Agents". It runs daily, on demand, and on a `repository_dispatch` of
-type `agents-changed`, which AnkiQuest-Agents sends when its `master` changes.
+type `agents-changed`, which AnkiQuest-Agents sends when its default branch changes.
 The repositories are the `TARGETS` list in that workflow; `AGENTS.md` lives on
-each one's `master`.
+each one's default branch, read from GitHub.
 
 ## Watched sources
 
-The forks' `master` branches also carry changes from sources that aren't our
+The forks' default branches also carry changes from sources that aren't our
 upstream: JSchoreels' FSRS-7 fork and fsrs-rs fork, kuma3's RWKV core, backend
 and app, and new upstream backend versions. Their changes need porting by
 hand, so the `watch` job only reports them: for each entry in `watched.json`
