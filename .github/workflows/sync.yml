@@ -87,7 +87,7 @@ jobs:
           git merge --abort 2>/dev/null || true
           if [ -n "$conflicts" ]; then
             echo "::warning::$UPSTREAM conflicts with $FORK in: $(echo "$conflicts" | paste -sd ' ')"
-            { echo "### $UPSTREAM conflicts with $FORK $BRANCH"; echo; echo "$conflicts" | sed 's/^/- /'; } >> "$GITHUB_STEP_SUMMARY"
+            { echo "### $UPSTREAM conflicts with $FORK $BRANCH"; echo; while IFS= read -r file; do echo "- $file"; done <<<"$conflicts"; } >> "$GITHUB_STEP_SUMMARY"
           else
             echo "$FORK: $UPSTREAM_NEW upstream commits merge cleanly" >> "$GITHUB_STEP_SUMMARY"
           fi
