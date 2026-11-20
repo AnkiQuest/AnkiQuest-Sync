@@ -1,0 +1,132 @@
+# Keeps AnkiQuest's forks up to date with their upstream repositories.
+#
+#   mirror: the fork's branch is a pure copy of upstream. It is fast-forwarded through
+#           GitHub's sync-fork API; if it has commits of its own, an issue is opened and
+#           nothing is pushed.
+#   pr:     the fork's branch carries our own changes. A pull request from upstream's
+#           branch into it is opened (or kept open); it lists conflicting files. Merge it
+#           with a merge commit so the fork keeps upstream's history.
+#
+# FORK_SYNC_TOKEN: fine-grained token for the AnkiQuest organisation with Contents,
+# Workflows, Pull requests and Issues read and write on every fork below. GITHUB_TOKEN
+# can't be used: it cannot write to other repositories, cannot push upstream commits
+# that change workflows, and pull requests it opens start no CI.
+name: Sync forks with upstream
+
+on:
+  schedule:
+    - cron: "17 3 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { fork: AnkiQuest/AnkiQuest-Android, branch: main, upstream: ankidroid/Anki-Android, upstream_branch: main, mode: pr }
+          - { fork: AnkiQuest/anki, branch: main, upstream: ankitects/anki, upstream_branch: main, mode: mirror }
+          - { fork: AnkiQuest/AnkiQuest-Android-Backend, branch: main, upstream: ankidroid/Anki-Android-Backend, upstream_branch: main, mode: mirror }
+          - { fork: AnkiQuest/garmankiquest, branch: master, upstream: sypianski/garmanki, upstream_branch: master, mode: pr }
+          - { fork: AnkiQuest/ankiquest-android-mcp, branch: main, upstream: ankimcp/ankidroid-mcp, upstream_branch: main, mode: pr }
+          - { fork: AnkiQuest/AnkiQuestconnectAndroid, branch: master, upstream: KamWithK/AnkiconnectAndroid, upstream_branch: master, mode: pr }
+    concurrency:
+      group: sync-${{ matrix.fork }}
+      cancel-in-progress: false
+    env:
+      GH_TOKEN: ${{ secrets.FORK_SYNC_TOKEN }}
+      FORK: ${{ matrix.fork }}
+      BRANCH: ${{ matrix.branch }}
+      UPSTREAM: ${{ matrix.upstream }}
+      UPSTREAM_BRANCH: ${{ matrix.upstream_branch }}
+    steps:
+      - name: Require the sync token
+        run: |
+          if [ -z "$GH_TOKEN" ]; then
+            echo "::error::Set FORK_SYNC_TOKEN (see the comment at the top of this workflow)."
+            exit 1
+          fi
+
+      # upstream_new: upstream commits the fork lacks; fork_own: fork commits upstream lacks
+      - name: Compare with upstream
+        id: compare
+        run: |
+          owner="${UPSTREAM%%/*}"
+          cmp=$(gh api "repos/$FORK/compare/$BRANCH...$owner:$UPSTREAM_BRANCH")
+          echo "upstream_new=$(jq .ahead_by <<<"$cmp")" >> "$GITHUB_OUTPUT"
+          echo "fork_own=$(jq .behind_by <<<"$cmp")" >> "$GITHUB_OUTPUT"
+
+      - name: Fast-forward the mirror
+        if: matrix.mode == 'mirror' && steps.compare.outputs.upstream_new != '0'
+        env:
+          FORK_OWN: ${{ steps.compare.outputs.fork_own }}
+          UPSTREAM_NEW: ${{ steps.compare.outputs.upstream_new }}
+        run: |
+          # A mirror with commits of its own is not fast-forwarded: report it once
+          if [ "$FORK_OWN" != "0" ]; then
+            title="$BRANCH has diverged from $UPSTREAM"
+            if [ -z "$(gh issue list --repo "$FORK" --state open --search "\"$title\" in:title" --json number --jq '.[0].number')" ]; then
+              gh issue create --repo "$FORK" --title "$title" \
+                --body "$BRANCH is meant to mirror $UPSTREAM $UPSTREAM_BRANCH, but has $FORK_OWN commits of its own. Move them to another branch and reset $BRANCH to upstream; the sync job (AnkiQuest/AnkiQuest-Sync) does not force-push."
+            fi
+            echo "::error::$FORK $BRANCH has $FORK_OWN commits not in upstream"
+            exit 1
+          fi
+          kind=$(gh api -X POST "repos/$FORK/merge-upstream" -f branch="$BRANCH" --jq .merge_type)
+          if [ "$kind" != "fast-forward" ]; then
+            echo "::error::expected a fast-forward, GitHub did: $kind"
+            exit 1
+          fi
+          echo "$FORK $BRANCH fast-forwarded by $UPSTREAM_NEW commits" >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: matrix.mode == 'pr' && steps.compare.outputs.upstream_new != '0'
+        with:
+          repository: ${{ matrix.fork }}
+          ref: ${{ matrix.branch }}
+          token: ${{ secrets.FORK_SYNC_TOKEN }}
+          fetch-depth: 0
+
+      - name: Open the upstream pull request
+        if: matrix.mode == 'pr' && steps.compare.outputs.upstream_new != '0'
+        env:
+          UPSTREAM_NEW: ${{ steps.compare.outputs.upstream_new }}
+        run: |
+          owner="${UPSTREAM%%/*}"
+          git fetch --no-tags "https://github.com/$UPSTREAM.git" "$UPSTREAM_BRANCH:refs/remotes/upstream/$UPSTREAM_BRANCH"
+
+          # Try the merge here so a conflict is reported by file, not only on the pull request page
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          conflicts=""
+          if ! git merge --no-commit --no-ff "refs/remotes/upstream/$UPSTREAM_BRANCH"; then
+            conflicts=$(git diff --name-only --diff-filter=U)
+            [ -n "$conflicts" ] || conflicts="(the trial merge failed without listing files; see the log)"
+          fi
+          git merge --abort 2>/dev/null || true
+          if [ -n "$conflicts" ]; then
+            echo "::warning::$UPSTREAM conflicts with $FORK in: $(echo "$conflicts" | paste -sd ' ')"
+            { echo "### $UPSTREAM conflicts with $FORK $BRANCH"; echo; echo "$conflicts" | sed 's/^/- /'; } >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "$FORK: $UPSTREAM_NEW upstream commits merge cleanly" >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+          open=$(gh api "repos/$FORK/pulls?head=$owner:$UPSTREAM_BRANCH&base=$BRANCH&state=open" --jq '.[0].number // empty')
+          if [ -n "$open" ]; then
+            echo "Pull request #$open is open and now includes the new commits"
+            exit 0
+          fi
+          gh api "repos/$FORK/pulls" --jq .html_url \
+            -f base="$BRANCH" -f head="$owner:$UPSTREAM_BRANCH" \
+            -f title="Merge upstream $UPSTREAM" \
+            -f body="$UPSTREAM_NEW new commits from $UPSTREAM $UPSTREAM_BRANCH.
+
+          Merge with a merge commit, never squash or rebase, so $BRANCH keeps upstream's history.
+
+          If this conflicts, merge $UPSTREAM $UPSTREAM_BRANCH into a branch from $BRANCH, resolve there, and merge that branch instead; this pull request then shows as merged.
+
+          Opened by AnkiQuest/AnkiQuest-Sync."
