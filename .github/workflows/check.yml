@@ -1,4 +1,5 @@
-# Lints the workflows and checks the flake on pull requests and on master.
+# Lints the workflows and checks the flake on pull requests and on master,
+# with AnkiQuest-Dev's shared Nix check.
 name: Check
 
 on:
@@ -12,16 +13,10 @@ permissions:
 
 jobs:
   check:
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - uses: cachix/install-nix-action@3dc140bfc76c49fbd4dd958429132e3746bcb086 # v31
-        with:
-          extra_nix_config: |
-            experimental-features = nix-command flakes
-      - run: nix flake check
-      - run: nix develop -c actionlint
-      - run: nix develop -c jq empty watched.json
+    uses: AnkiQuest/AnkiQuest-Dev/.github/workflows/nix-check.yml@master
+    with:
+      # The flake's checks include the formatting.
+      format: ""
+      actionlint: true
+      run: jq empty watched.json
+      timeout-minutes: 10
