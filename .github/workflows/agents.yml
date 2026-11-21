@@ -38,6 +38,7 @@ env:
       "AnkiQuest/AnkiQuest-Android-MCP",
       "AnkiQuest/AnkiQuest-AnkiConnectAndroid",
       "AnkiQuest/AnkiQuest-Dev",
+      "AnkiQuest/AnkiQuest-Hosting",
       "AnkiQuest/AnkiQuest-Sync",
       "AnkiQuest/AnkiQuest-Agents"
     ]
