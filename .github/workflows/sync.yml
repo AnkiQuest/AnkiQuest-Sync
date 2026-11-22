@@ -23,6 +23,12 @@ on:
 permissions:
   contents: read
 
+# One run at a time, never cancelled: two runs would both open pull requests
+# or issues. A newer run waits for the running one.
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: false
+
 jobs:
   sync:
     runs-on: ubuntu-latest
@@ -36,9 +42,6 @@ jobs:
           - { fork: AnkiQuest/AnkiQuest-GarmAnki, upstream: sypianski/garmanki, upstream_branch: master }
           - { fork: AnkiQuest/AnkiQuest-Android-MCP, upstream: ankimcp/ankidroid-mcp, upstream_branch: main }
           - { fork: AnkiQuest/AnkiQuest-AnkiConnectAndroid, upstream: KamWithK/AnkiconnectAndroid, upstream_branch: master }
-    concurrency:
-      group: sync-${{ matrix.fork }}
-      cancel-in-progress: false
     env:
       GH_TOKEN: ${{ secrets.FORK_SYNC_TOKEN }}
       FORK: ${{ matrix.fork }}

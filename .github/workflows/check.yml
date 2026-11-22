@@ -11,8 +11,30 @@ on:
 permissions:
   contents: read
 
+# A newer push to a pull request replaces its run; pushes to master and merge
+# queue entries each keep theirs.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
+  # Whether anything besides documentation changed. Nothing below reads the
+  # Markdown or licence texts, so a docs-only change skips the check.
+  changes:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      code: ${{ steps.changed.outputs.code }}
+    steps:
+      - id: changed
+        uses: AnkiQuest/AnkiQuest-Dev/.github/actions/code-changed@5ab685e7013b865630f96530ca8c654344738fa8
+
   check:
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     uses: AnkiQuest/AnkiQuest-Dev/.github/workflows/nix-check.yml@master
     with:
       # The flake's checks include the formatting.
