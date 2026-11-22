@@ -40,7 +40,9 @@ env:
       "AnkiQuest/AnkiQuest-Dev",
       "AnkiQuest/AnkiQuest-Hosting",
       "AnkiQuest/AnkiQuest-Sync",
-      "AnkiQuest/AnkiQuest-Agents"
+      "AnkiQuest/AnkiQuest-Agents",
+      "AnkiQuest/AnkiQuest-Art",
+      "AnkiQuest/AnkiQuest.github.io"
     ]
 
 jobs:
