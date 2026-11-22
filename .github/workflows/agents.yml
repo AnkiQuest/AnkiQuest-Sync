@@ -9,6 +9,9 @@
 # FORK_SYNC_TOKEN: see sync.yml; it also needs Contents and Pull requests read and
 # write on every repository in TARGETS, and Contents read on AnkiQuest-Agents.
 #
+# After opening or updating a pull request it sends AnkiQuest.github.io the
+# wiring-changed dispatch (see wiring.yml), which needs Contents write there.
+#
 # The per-repository logic is shell glue; if it grows, move it to a Rust tool here.
 name: Distribute AGENTS.md
 
@@ -67,6 +70,7 @@ jobs:
           persist-credentials: false
 
       - name: Open the pull requests
+        id: prs
         run: |
           git config --global user.name "github-actions[bot]"
           git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
@@ -122,6 +126,7 @@ jobs:
               echo "::error::$repo: push failed"; failed=1; continue
             fi
 
+            echo "changed=1" >> "$GITHUB_OUTPUT"
             if [ -n "$open" ]; then
               echo "$repo: updated pull request #$open" >> "$GITHUB_STEP_SUMMARY"; continue
             fi
@@ -135,3 +140,8 @@ jobs:
           done
 
           exit $failed
+
+      # The wiring map lists these pull requests
+      - name: Rebuild the wiring map
+        if: ${{ !cancelled() && steps.prs.outputs.changed == '1' }}
+        run: gh api repos/AnkiQuest/AnkiQuest.github.io/dispatches -f event_type=wiring-changed

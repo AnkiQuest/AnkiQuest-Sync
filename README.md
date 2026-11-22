@@ -61,6 +61,22 @@ optional tag. One run at a time, never cancelled. The logic is
 `tools/art-pin`, a Rust tool tested by the `check` workflow
 (`cargo test` in `tools/art-pin`).
 
+## Wiring map
+
+The `wiring` job (`.github/workflows/wiring.yml`) keeps
+[AnkiQuest.github.io](https://github.com/AnkiQuest/AnkiQuest.github.io)'s wiring
+map current. Every 30 minutes it reads the last map built (`wiring.json` on that
+repository's default branch or its `wiring-update` branch, whichever was
+generated last) and compares what it recorded with the sources now: each
+repository's default-branch head, the branch tip each pin was compared with,
+and the newest Maven Central release of each pinned artifact. Commits there
+that only change the map's own files don't count. If anything moved and no
+map build is queued or running, it sends a `repository_dispatch` of type
+`wiring-changed` there, which rebuilds the map. It keeps no state: the
+rebuilt map records the new values. The `agents` and `art` jobs send the
+same dispatch after opening or updating pull requests. The logic is
+`tools/wiring-check`, a Rust tool tested by the `check` workflow.
+
 ## Watched sources
 
 The forks' default branches also carry changes from sources that aren't our
@@ -78,7 +94,8 @@ Needs the secret `FORK_SYNC_TOKEN`: a fine-grained token for the AnkiQuest
 organisation with Contents, Workflows, Pull requests and Issues read and write
 on the six forks, Contents and Pull requests read and write on the other
 repositories in `TARGETS` and in `art-consumers.json`, and Contents read on
-AnkiQuest-Agents and AnkiQuest-Art.
+AnkiQuest-Agents and AnkiQuest-Art. The `wiring-changed` dispatch needs
+Contents write on AnkiQuest.github.io, which `TARGETS` already grants.
 
 ## Licence
 

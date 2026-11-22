@@ -23,7 +23,7 @@
     inherit (ankiquest-dev) formatter;
 
     # AnkiQuest-Dev's default shell (actionlint, jq, gh and alejandra) and
-    # its pinned Rust toolchain, for tools/art-pin.
+    # its pinned Rust toolchain, for the tools in tools/.
     devShells = forAllSystems (system: {
       default = ankiquest-dev.legacyPackages.${system}.mkShell {
         inputsFrom = [ankiquest-dev.devShells.${system}.default];

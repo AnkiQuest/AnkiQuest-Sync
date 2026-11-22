@@ -11,6 +11,9 @@
 # tools/art-pin holds the logic: the latest tag, checking the pin file
 # against the release's SHA256SUMS, comparing and the pull request text.
 #
+# After opening or updating a pull request it sends AnkiQuest.github.io the
+# wiring-changed dispatch (see wiring.yml).
+#
 # FORK_SYNC_TOKEN: see sync.yml; it also needs Contents and Pull requests read
 # and write on every repository in art-consumers.json.
 name: Pin AnkiQuest-Art releases
@@ -90,6 +93,7 @@ jobs:
           art-pin verify release/ankiquest-art.json release/SHA256SUMS "$TAG"
 
       - name: Open the pull requests
+        id: prs
         if: steps.release.outputs.tag != ''
         env:
           TAG: ${{ steps.release.outputs.tag }}
@@ -134,6 +138,7 @@ jobs:
             fi
 
             # The title and body follow the newest release
+            echo "changed=1" >> "$GITHUB_OUTPUT"
             if [ -n "$open" ]; then
               gh api -X PATCH "repos/$repo/pulls/$open" -f title="$title" -f body="$body" --silent
               echo "$repo: updated pull request #$open to $TAG" >> "$GITHUB_STEP_SUMMARY"; continue
@@ -144,3 +149,8 @@ jobs:
           done
 
           exit $failed
+
+      # Rebuild the wiring map after changing pull requests
+      - name: Rebuild the wiring map
+        if: ${{ !cancelled() && steps.prs.outputs.changed == '1' }}
+        run: gh api repos/AnkiQuest/AnkiQuest.github.io/dispatches -f event_type=wiring-changed

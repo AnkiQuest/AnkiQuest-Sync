@@ -1,0 +1,85 @@
+# Rebuilds AnkiQuest.github.io's wiring map when what it shows has moved.
+#
+# Every 30 minutes it reads the last map built (wiring.json on the map
+# repository's default branch or on its wiring-update branch, whichever was
+# generated last) and runs tools/wiring-check on it: a repository with a new
+# default-branch head, a branch tip a pin was compared with that has moved, or
+# a Maven artifact with a new release. If anything changed, it sends the
+# `wiring-changed` repository_dispatch that runs the map's wiring workflow.
+# The map itself is the only state; a rebuild records the new values, so a
+# change is dispatched once. A map build already queued or running is not
+# restarted; what it missed is found on the next run.
+#
+# The agents and art jobs send the same dispatch after opening or updating
+# pull requests, which the map lists.
+#
+# FORK_SYNC_TOKEN: see sync.yml; it also needs Contents write on
+# AnkiQuest.github.io, which repository_dispatch requires.
+name: Rebuild the wiring map
+
+on:
+  schedule:
+    - cron: "*/30 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+# One check at a time; a newer one replaces a running one.
+concurrency:
+  group: wiring
+  cancel-in-progress: true
+
+env:
+  MAP: AnkiQuest/AnkiQuest.github.io
+
+jobs:
+  wiring:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      GH_TOKEN: ${{ secrets.FORK_SYNC_TOKEN }}
+    steps:
+      - name: Require the sync token
+        run: |
+          if [ -z "$GH_TOKEN" ]; then
+            echo "::error::Set FORK_SYNC_TOKEN (see the comment at the top of sync.yml)."
+            exit 1
+          fi
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Build wiring-check
+        run: |
+          cargo build -q --locked --release --manifest-path tools/wiring-check/Cargo.toml
+          echo "$PWD/tools/wiring-check/target/release" >> "$GITHUB_PATH"
+
+      # wiring-update may not exist: then only the default branch's map counts
+      - name: Compare the map with its sources
+        run: |
+          raw="Accept: application/vnd.github.raw+json"
+          gh api -H "$raw" "repos/$MAP/contents/wiring.json" > master.json
+          gh api -H "$raw" "repos/$MAP/contents/wiring.json?ref=wiring-update" > update.json 2>/dev/null || rm -f update.json
+          wiring-check "$MAP" master.json update.json > changes.txt
+          if [ ! -s changes.txt ]; then
+            echo "The wiring map is current." >> "$GITHUB_STEP_SUMMARY"
+          else
+            { echo "Changed since the map was built:"; sed 's/^/- /' changes.txt; } >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Rebuild the map
+        run: |
+          [ -s changes.txt ] || exit 0
+          busy=$(gh run list --repo "$MAP" --workflow wiring.yml --json status --jq 'map(select(.status != "completed")) | length')
+          if [ "$busy" != 0 ]; then
+            echo "A map build is already queued or running." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          gh api "repos/$MAP/dispatches" -f event_type=wiring-changed
+          echo "Sent wiring-changed to $MAP." >> "$GITHUB_STEP_SUMMARY"
