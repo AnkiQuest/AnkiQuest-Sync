@@ -1,0 +1,137 @@
+# Keeps AnkiQuest-Android on the newest org.ankiquest backend. When
+# AnkiQuest-Android-Backend's publish workflow puts a version on Maven
+# Central it sends the `backend-published` repository_dispatch with the
+# version in the payload; this job opens or updates the pull request that
+# raises the version the app builds against (ankiBackend in the app's
+# gradle/libs.versions.toml, which feeds both the dependency and the
+# BACKEND_VERSION build config).
+#
+# Runs on the dispatch, daily as a fallback (a missed dispatch arrives a
+# day late, never never), and on demand with an explicit version. The
+# fallback version is the newest the download endpoints serve for the
+# published artefacts, so a pull request only ever pins what is there.
+#
+# tools/backend-bump.sh holds the logic: finding the newest version,
+# waiting for Maven Central to serve it, and the toml edit.
+#
+# FORK_SYNC_TOKEN: see sync.yml; it also needs Contents and Pull requests
+# read and write on AnkiQuest-Android.
+name: Bump the backend in AnkiQuest-Android
+
+on:
+  repository_dispatch:
+    types: [backend-published]
+  schedule:
+    - cron: "23 4 * * *"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Backend version for the pull request; empty for the newest on Maven Central"
+        type: string
+        default: ""
+
+permissions:
+  contents: read
+
+# pipefail: a half-written toml must not push.
+defaults:
+  run:
+    shell: bash
+
+# One writer at a time; a run is never cancelled.
+concurrency:
+  group: backend-bump
+  cancel-in-progress: false
+
+jobs:
+  backend-bump:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      GH_TOKEN: ${{ secrets.FORK_SYNC_TOKEN }}
+    steps:
+      - name: Require the sync token
+        run: |
+          if [ -z "$GH_TOKEN" ]; then
+            echo "::error::Set FORK_SYNC_TOKEN (see the comment at the top of sync.yml)."
+            exit 1
+          fi
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # Dispatched, then requested, then the newest on Maven Central
+      - name: Find the version
+        id: find
+        env:
+          REQUESTED: ${{ inputs.version }}
+          DISPATCHED: ${{ github.event.client_payload.version }}
+        run: |
+          for candidate in "$DISPATCHED" "$REQUESTED" $(tools/backend-bump.sh latest); do
+            if [ -n "$candidate" ]; then
+              echo "version=$candidate" >> "$GITHUB_OUTPUT"
+              break
+            fi
+          done
+
+      - name: Wait for Maven Central
+        if: steps.find.outputs.version != ''
+        env:
+          VERSION: ${{ steps.find.outputs.version }}
+        run: tools/backend-bump.sh wait "$VERSION"
+
+      - name: Clone the app
+        if: steps.find.outputs.version != ''
+        env:
+          GH_TOKEN: ${{ secrets.FORK_SYNC_TOKEN }}
+        run: |
+          gh auth setup-git
+          git clone -q --depth 1 --filter=blob:none --sparse "https://github.com/AnkiQuest/AnkiQuest-Android.git" app
+          git -C app sparse-checkout set --no-cone /gradle/libs.versions.toml
+
+      - name: Open or update the pull request
+        if: steps.find.outputs.version != ''
+        env:
+          GH_TOKEN: ${{ secrets.FORK_SYNC_TOKEN }}
+          VERSION: ${{ steps.find.outputs.version }}
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          repo=AnkiQuest/AnkiQuest-Android
+
+          base=$(gh api "repos/$repo" --jq .default_branch)
+          open=$(gh api "repos/$repo/pulls?head=AnkiQuest:backend-bump&base=$base&state=open" --jq '.[0].number // empty')
+
+          # Add to the open pull request, or start the branch afresh from master
+          if [ -n "$open" ]; then
+            git -C app fetch -q --depth 1 origin backend-bump
+            git -C app checkout -q -B backend-bump FETCH_HEAD
+          else
+            git -C app push -q origin --delete backend-bump 2>/dev/null || true
+            git -C app checkout -q -b backend-bump
+          fi
+
+          tools/backend-bump.sh bump "$VERSION" app/gradle/libs.versions.toml
+          git -C app add gradle/libs.versions.toml
+          if git -C app diff --cached --quiet; then
+            echo "$repo: builds against $VERSION already" >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+
+          title="Backend $VERSION"
+          body="Raises the backend the app builds against to $VERSION, the version AnkiQuest-Android-Backend published to Maven Central (org.ankiquest:ankiquest-backend-android, ankiquest-backend-core and ankiquest-android-backend-testing)."
+          git -C app commit -q -m "$title" -m "AnkiQuest-Android-Backend published $VERSION; the app builds against it."
+          if ! git -C app push -q origin backend-bump; then
+            echo "::error::$repo: push failed"
+            exit 1
+          fi
+
+          if [ -n "$open" ]; then
+            gh api -X PATCH "repos/$repo/pulls/$open" -f title="$title" -f body="$body" --silent
+            echo "$repo: updated pull request #$open to $VERSION" >> "$GITHUB_STEP_SUMMARY"
+          else
+            url=$(gh api "repos/$repo/pulls" --jq .html_url \
+              -f base="$base" -f head=backend-bump -f title="$title" -f body="$body")
+            echo "$repo: opened $url" >> "$GITHUB_STEP_SUMMARY"
+          fi
