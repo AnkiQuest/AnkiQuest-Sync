@@ -22,10 +22,13 @@ The list of forks is the matrix in `.github/workflows/sync.yml`.
 
 The `agents` job (`.github/workflows/agents.yml`) writes each repository's
 `AGENTS.md` from [AnkiQuest-Agents](https://github.com/AnkiQuest/AnkiQuest-Agents):
-`shared.md`, a blank line, `repos/<repository>.md`. `CLAUDE.md` becomes
-`@AGENTS.md`; a fork whose upstream has its own `CLAUDE.md` keeps it with
-`@AGENTS.md` as its first line. Where either differs, it pushes branch
-`agents-sync` and opens or updates one pull request, "Update AGENTS.md from
+`shared.md`, a blank line, `repos/<repository>.md`; a fork's AGENTS.md then
+carries its upstream's own guidance (the upstream's `CLAUDE.md`, or `AGENTS.md`
+where `CLAUDE.md` only points at it; nothing when the upstream has neither)
+under an "Upstream guidance" heading, so upstream's rules are kept and tracked
+rather than overwritten. `CLAUDE.md` becomes `@AGENTS.md` in every repository,
+since the upstream guidance now lives in `AGENTS.md`. Where either differs, it
+pushes branch `agents-sync` and opens or updates one pull request, "Update AGENTS.md from
 AnkiQuest-Agents". It runs daily, on demand, and on a `repository_dispatch` of
 type `agents-changed`, which AnkiQuest-Agents sends when its default branch changes.
 The repositories are the `TARGETS` list in that workflow; `AGENTS.md` lives on
