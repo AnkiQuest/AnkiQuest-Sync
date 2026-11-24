@@ -126,9 +126,7 @@ jobs:
                   echo
                   echo "## Upstream guidance"
                   echo
-                  echo "From [$upstream](https://github.com/$upstream)'s $path, kept here so the fork still
-follows the originating project's own rules where AnkiQuest's do not override
-them; this job refreshes the wording when upstream changes it."
+                  echo "From [$upstream](https://github.com/$upstream)'s $path, kept here so the fork still follows the originating project's own rules where AnkiQuest's do not override them; this job refreshes the wording when upstream changes it."
                   echo
                   printf '%s\n' "$text"
                 } >> agents.md
