@@ -1,10 +1,16 @@
 # Writes each AnkiQuest repository's AGENTS.md from AnkiQuest/AnkiQuest-Agents:
-# shared.md, a blank line, repos/<repository>.md. CLAUDE.md becomes "@AGENTS.md";
-# a fork whose upstream has its own CLAUDE.md keeps it with "@AGENTS.md" added as
-# its first line. Where either file differs from the repository's branch, the job
-# pushes branch agents-sync there and opens (or updates) one pull request.
+# shared.md, a blank line, repos/<repository>.md. A fork's AGENTS.md then carries
+# its upstream's own guidance (CLAUDE.md, or AGENTS.md where CLAUDE.md only points
+# at it) under an "Upstream guidance" heading, so upstream's rules are kept and
+# tracked, not overwritten: when upstream edits its file, the next run takes the
+# new text along in the same pull request. CLAUDE.md becomes "@AGENTS.md" in
+# every repository (the upstream text lives in AGENTS.md now). Where either file
+# differs from the repository's branch, the job pushes branch agents-sync there
+# and opens (or updates) one pull request.
 #
 # TARGETS: the repositories; AGENTS.md lives on each one's default branch.
+# UPSTREAMS: a fork's upstream, whose guidance is appended; forks whose upstream
+# has no guidance file of its own are left out.
 #
 # FORK_SYNC_TOKEN: see sync.yml; it also needs Contents and Pull requests read and
 # write on every repository in TARGETS, and Contents read on AnkiQuest-Agents.
@@ -44,6 +50,20 @@ env:
       "AnkiQuest/AnkiQuest-Art",
       "AnkiQuest/AnkiQuest.github.io"
     ]
+
+  # A fork's upstream: its own guidance (CLAUDE.md, or AGENTS.md) is appended to
+  # the fork's AGENTS.md when it exists; an upstream without a guidance file
+  # contributes nothing. Reuse the list in sync.yml's matrix, whose "upstream"
+  # these must mirror.
+  UPSTREAMS: |
+    {
+      "AnkiQuest/AnkiQuest-Anki": "ankitects/anki",
+      "AnkiQuest/AnkiQuest-Android": "ankidroid/Anki-Android",
+      "AnkiQuest/AnkiQuest-Android-Backend": "ankidroid/Anki-Android-Backend",
+      "AnkiQuest/AnkiQuest-GarmAnki": "sypianski/garmanki",
+      "AnkiQuest/AnkiQuest-Android-MCP": "ankimcp/ankidroid-mcp",
+      "AnkiQuest/AnkiQuest-AnkiConnectAndroid": "KamWithK/AnkiconnectAndroid"
+    }
 
 jobs:
   agents:
@@ -87,13 +107,34 @@ jobs:
             git -C "$dir" sparse-checkout set --no-cone /AGENTS.md /CLAUDE.md
 
             { cat source/shared.md; echo; cat "$section"; } > agents.md
-            if [ ! -f "$dir/CLAUDE.md" ]; then
-              echo "@AGENTS.md" > claude.md
-            elif [ "$(head -n1 "$dir/CLAUDE.md")" = "@AGENTS.md" ]; then
-              cp "$dir/CLAUDE.md" claude.md
-            else
-              { echo "@AGENTS.md"; echo; cat "$dir/CLAUDE.md"; } > claude.md
+
+            # The fork's upstream keeps its own guidance inside AGENTS.md: take
+            # CLAUDE.md, or AGENTS.md where CLAUDE.md only points at it, and skip
+            # indirection files (a first line of "@..."). An upstream with neither
+            # contributes nothing, and any change to its wording lands in the next
+            # agents-sync pull request.
+            upstream=$(jq -r --arg repo "$repo" '.[$repo] // empty' <<<"$UPSTREAMS")
+            if [ -n "$upstream" ]; then
+              for path in CLAUDE.md AGENTS.md; do
+                text=$(gh api "repos/$upstream/contents/$path" --jq '.content' 2>/dev/null | tr -d '\n' | base64 -d || true)
+                # Missing, or a file that only points at another ("@..."): try the next.
+                skipped=$(head -n1 <<<"$text")
+                if [ -z "$text" ] || [ "${skipped#@}" != "$skipped" ]; then
+                  continue
+                fi
+                {
+                  echo
+                  echo "## Upstream guidance"
+                  echo
+                  echo "From [$upstream](https://github.com/$upstream)'s $path, kept here so the fork still follows the originating project's own rules where AnkiQuest's do not override them; this job refreshes the wording when upstream changes it."
+                  echo
+                  printf '%s\n' "$text"
+                } >> agents.md
+                break
+              done
             fi
+
+            echo "@AGENTS.md" > claude.md
 
             # A symlinked AGENTS.md (upstream Anki links it to CLAUDE.md) counts as different
             if [ ! -L "$dir/AGENTS.md" ] && cmp -s agents.md "$dir/AGENTS.md" && cmp -s claude.md "$dir/CLAUDE.md"; then
