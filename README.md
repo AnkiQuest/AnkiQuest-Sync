@@ -103,9 +103,12 @@ hand, so the `watch` job only reports them and opens no merge pull request:
 
 For each entry in `watched.json` whose source has moved past `reviewed`, the
 job opens (or updates) one issue in the
-fork it feeds, listing the new commits or the new version. After porting or
-skipping them, set that entry's `reviewed` to the reported commit or version;
-the issue closes on the next run.
+fork it feeds, listing the new commits or the new version. A fork with issues
+disabled gets the issue here, in AnkiQuest-Sync, titled with the fork's name.
+After porting or skipping them, set that entry's `reviewed` to the reported
+commit or version; the issue closes on the next run. Every source is checked
+even when one fails; the job then fails, naming the failed sources. The logic
+is `tools/source-watch`, a Rust tool tested by the `check` workflow.
 
 ## Token
 
@@ -113,7 +116,8 @@ Needs the secret `FORK_SYNC_TOKEN`: a fine-grained token for the AnkiQuest
 organisation with Contents, Workflows, Pull requests and Issues read and write
 on the six forks, Contents and Pull requests read and write on the other
 repositories in `TARGETS` and in `art-consumers.json`, and Contents read on
-AnkiQuest-Agents and AnkiQuest-Art.
+AnkiQuest-Agents and AnkiQuest-Art. The `watch` job writes AnkiQuest-Sync's own
+issues with the job's `GITHUB_TOKEN`.
 
 ## Licence
 
