@@ -5,6 +5,7 @@
 //!
 //!   source-watch matrix <forks.json> <watched.json>
 //!   source-watch report <watched.json> <fallback> <summary> <workdir>
+//!   source-watch mirror <mirrors.json> <base> <summary> <workdir>
 //!
 //! matrix prints the sync job's matrix as JSON: each fork's upstream and
 //! each watched source in mode "merge".
@@ -17,9 +18,16 @@
 //! the command fails at the end, naming the failed entries. GH_TOKEN reads
 //! the sources and writes the targets' issues, branches and pull requests;
 //! FALLBACK_TOKEN, if set, writes <fallback>'s issues.
+//!
+//! mirror moves each branch of <mirrors.json> to its source's commit (see
+//! mirror.rs), fetching and pushing with git in the bare repository
+//! <workdir>; repositories are <base>/<owner>/<repo>.git (https://github.com
+//! in the job). Like report, it appends to <summary>, checks every entry and
+//! fails at the end naming the failed ones.
 
 mod github;
 mod matrix;
+mod mirror;
 mod pin;
 mod report;
 mod watched;
@@ -28,13 +36,13 @@ mod workspace;
 use std::env;
 use std::fs::{self, OpenOptions};
 use std::io::Write;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use github::Gh;
 use workspace::Checkout;
 
-const USAGE: &str = "usage: source-watch matrix <forks.json> <watched.json> | report <watched.json> <fallback> <summary> <workdir>";
+const USAGE: &str = "usage: source-watch matrix <forks.json> <watched.json> | report <watched.json> <fallback> <summary> <workdir> | mirror <mirrors.json> <base> <summary> <workdir>";
 
 fn main() -> ExitCode {
     let args: Vec<String> = env::args().skip(1).collect();
@@ -44,6 +52,7 @@ fn main() -> ExitCode {
         ["report", watched, fallback, summary, workdir] => {
             report(watched, fallback, summary, workdir)
         }
+        ["mirror", mirrors, base, summary, workdir] => mirror(mirrors, base, summary, workdir),
         _ => Err(USAGE.to_owned()),
     };
     match result {
@@ -85,23 +94,54 @@ fn report(watched: &str, fallback: &str, summary_path: &str, workdir: &str) -> R
     }
 
     // The summary already has a "failed" line for each failed entry
+    append(summary_path, &summary.lines)?;
+    let failed: Vec<&str> = summary.failures.iter().map(|(l, _)| l.as_str()).collect();
+    failures(&failed, entries.len(), "sources")
+}
+
+fn mirror(mirrors: &str, base: &str, summary_path: &str, workdir: &str) -> Result<(), String> {
+    let mirrors = mirror::parse(&read(mirrors)?)?;
+    let remote = mirror::Remote::new(base, Path::new(workdir))?;
+
+    // Every mirror is tried; a failed one is named in an annotation and the summary
+    let mut lines = Vec::new();
+    let mut failed = Vec::new();
+    for entry in &mirrors {
+        match remote.update(entry) {
+            Ok(outcome) => lines.push(mirror::line(entry, &outcome)),
+            Err(error) => {
+                println!("::error::{}: {error}", entry.label());
+                lines.push(format!("{}: failed", entry.label()));
+                failed.push(entry.label());
+            }
+        }
+    }
+    append(summary_path, &lines)?;
+    let failed: Vec<&str> = failed.iter().map(String::as_str).collect();
+    failures(&failed, mirrors.len(), "mirrors")
+}
+
+/// Appends lines to the job summary file.
+fn append(path: &str, lines: &[String]) -> Result<(), String> {
     let mut file = OpenOptions::new()
         .create(true)
         .append(true)
-        .open(summary_path)
-        .map_err(|e| format!("{summary_path}: {e}"))?;
-    for line in &summary.lines {
-        writeln!(file, "{line}").map_err(|e| format!("{summary_path}: {e}"))?;
+        .open(path)
+        .map_err(|e| format!("{path}: {e}"))?;
+    for line in lines {
+        writeln!(file, "{line}").map_err(|e| format!("{path}: {e}"))?;
     }
+    Ok(())
+}
 
-    if summary.failures.is_empty() {
+/// Ok when nothing failed, otherwise an error naming what did.
+fn failures(failed: &[&str], total: usize, what: &str) -> Result<(), String> {
+    if failed.is_empty() {
         return Ok(());
     }
-    let failed: Vec<&str> = summary.failures.iter().map(|(l, _)| l.as_str()).collect();
     Err(format!(
-        "{} of {} sources failed: {}",
+        "{} of {total} {what} failed: {}",
         failed.len(),
-        entries.len(),
         failed.join(", ")
     ))
 }

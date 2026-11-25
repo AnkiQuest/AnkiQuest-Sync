@@ -46,7 +46,12 @@ left out). The `sync` job writes that section; this job keeps it as the fork's
 branch has it, so the two never change the same text. `CLAUDE.md` is
 `@AGENTS.md` in every repository. Where either differs, it pushes branch
 `agents-sync` and opens or updates one pull request,
-`chore(agents): update AGENTS.md from AnkiQuest-Agents`. It runs daily, on
+`chore(agents): update AGENTS.md from AnkiQuest-Agents`, and turns on
+auto-merge (`tools/auto-merge.sh`): the pull request squash-merges, or joins
+the merge queue where the base branch has one, once its checks pass. The
+rules were reviewed in AnkiQuest-Agents, so nobody merges it by hand; the
+repository must allow auto-merge, and its rules must not wait on a review
+(see "Token"). It runs daily, on
 demand, and on a `repository_dispatch` of type `agents-changed`, which
 AnkiQuest-Agents sends when its default branch changes. The repositories are
 the `TARGETS` list in that workflow; `AGENTS.md` lives on each one's default
@@ -75,7 +80,9 @@ repository's copy on its default branch (a missing file differs). Where it
 differs, it pushes branch `art-release` with only that file replaced and opens
 or updates one pull request, `chore(art): use AnkiQuest-Art <tag>`, listing the old and
 new tag, the Art compare link and the asset hashes that changed. With that
-pull request open, it adds to the branch instead of starting it again.
+pull request open, it adds to the branch instead of starting it again. Like
+the `agents` job, it turns on auto-merge: the art was reviewed in
+AnkiQuest-Art.
 
 It runs on a `repository_dispatch` of type `art-released` with client payload
 `{"tag": "art-<N>"}`, which AnkiQuest-Art's release workflow sends after
@@ -105,6 +112,20 @@ checked even when one fails; the job then fails, naming the failed sources.
 The logic is `tools/source-watch` (also the `sync` job's matrix, `source-watch
 matrix forks.json watched.json`), a Rust tool tested by the `check` workflow.
 
+## Mirrors
+
+Some branches of ours mirror a source branch: AnkiQuest-Android's
+`upstream-main` is ankidroid/Anki-Android `main`, the base of the
+`upstream/*` branches proposed to AnkiDroid. They are listed in
+`mirrors.json` (`source`, `ref`, `target`, `branch`, `why`). The `mirror` job
+in `sync.yml` pushes each one to the source's commit directly, without a pull
+request. It never forces the push and never writes a default branch (`master`
+and `main` are refused, and so is whatever branch the target's `HEAD` names).
+If the source was force-pushed or someone pushed to the mirror, the job fails
+naming the mirror and leaves the branch as it is; reset it by hand. A
+missing mirror is created. The logic is `source-watch mirror` in
+`tools/source-watch`.
+
 ## Token
 
 Needs the secret `FORK_SYNC_TOKEN`: a fine-grained token for the AnkiQuest
@@ -115,6 +136,16 @@ branches and opens their pull requests in the `pin` entries' targets), Contents 
 and write on the other repositories in `TARGETS` and in `art-consumers.json`, and Contents read on
 AnkiQuest-Agents and AnkiQuest-Art. The `watch` job writes AnkiQuest-Sync's own
 issues with the job's `GITHUB_TOKEN`.
+
+- **Mirrors**: Contents and Workflows write on each target in `mirrors.json`
+  (the mirrored upstream commits may change workflows); the six forks
+  already have both.
+- **Auto-merge**: Pull requests write on every repository in `TARGETS` and
+  `art-consumers.json`, which they already have. Each of those repositories
+  must allow auto-merge, and squash merging where it has no merge queue.
+  Auto-merge waits for every rule of the base branch, review included, and a
+  ruleset bypass does not apply to it: where a ruleset requires an approving
+  review, the `agents-sync` and `art-release` pull requests still wait for one.
 
 ## Licence
 
