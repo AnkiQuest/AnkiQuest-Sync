@@ -1,0 +1,9 @@
+[package]
+name = "fork-sync"
+version = "0.1.0"
+edition = "2024"
+license = "AGPL-3.0-or-later"
+description = "Merges upstream into AnkiQuest's forks and writes their AGENTS.md and sync pull requests"
+publish = false
+
+[dependencies]

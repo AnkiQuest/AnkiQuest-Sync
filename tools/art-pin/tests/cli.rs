@@ -110,7 +110,7 @@ fn missing_file_needs_update() {
 #[test]
 fn title() {
     let (_, out) = run(&["title", &fixture("art-13.json")], None);
-    assert_eq!(out, "Use AnkiQuest-Art art-13\n");
+    assert_eq!(out, "chore(art): use AnkiQuest-Art art-13\n");
 }
 
 #[test]

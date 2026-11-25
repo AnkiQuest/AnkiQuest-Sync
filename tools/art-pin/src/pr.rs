@@ -52,7 +52,7 @@ pub fn status(new: &[u8], old: Option<&[u8]>) -> Status {
 }
 
 pub fn title(new: &Pin) -> String {
-    format!("Use AnkiQuest-Art {}", tag(new))
+    format!("chore(art): use AnkiQuest-Art {}", tag(new))
 }
 
 /// The pull request body: the old and new tag, the Art commits between
@@ -176,7 +176,7 @@ mod tests {
     fn titles() {
         assert_eq!(
             title(&pin(Some("art-13"), None, &[])),
-            "Use AnkiQuest-Art art-13"
+            "chore(art): use AnkiQuest-Art art-13"
         );
     }
 
