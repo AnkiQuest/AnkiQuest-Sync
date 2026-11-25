@@ -182,7 +182,7 @@ mod tests {
     fn titles() {
         assert_eq!(
             title(Kind::Art, &pin(Some("art-13"), None, &[])),
-            "Use AnkiQuest-Art art-13"
+            "chore(art): use AnkiQuest-Art art-13"
         );
     }
 

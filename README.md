@@ -41,8 +41,8 @@ pin file at the repository's root:
 
 | Kind | Publisher | Tags | Pin file | Pull request | Job |
 | --- | --- | --- | --- | --- | --- |
-| `art` | [AnkiQuest-Art](https://github.com/AnkiQuest/AnkiQuest-Art) | `art-<N>` | `ankiquest-art.json` | "Use AnkiQuest-Art <tag>" | `art` (`.github/workflows/art.yml`) |
-| `rules` | [AnkiQuest-Server](https://github.com/AnkiQuest/AnkiQuest-Server) (`crates/rules`) | `rules-<N>` | `ankiquest-rules.json` | "chore: use rules-<N>" | `rules` (`.github/workflows/rules.yml`) |
+| `art` | [AnkiQuest-Art](https://github.com/AnkiQuest/AnkiQuest-Art) | `art-<N>` | `ankiquest-art.json` | "chore(art): use AnkiQuest-Art <tag>" | `art` (`.github/workflows/art.yml`) |
+| `rules` | [AnkiQuest-Server](https://github.com/AnkiQuest/AnkiQuest-Server) (`crates/rules`) | `rules-<N>` | `ankiquest-rules.json` | "chore(rules): use AnkiQuest-Server rules-<N>" | `rules` (`.github/workflows/rules.yml`) |
 
 `release-consumers.json` lists the repositories of each kind: for `art`,
 AnkiQuest-Server, AnkiQuest-Desktop, AnkiQuest-Android and AnkiQuest.github.io;

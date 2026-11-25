@@ -1,6 +1,7 @@
 # Keeps every consumer of AnkiQuest-Server's shared rules on the latest
-# rules release: one pull request per consumer, "chore: use rules-<N>",
-# replacing its ankiquest-rules.json (pins.yml does the work).
+# rules release: one pull request per consumer,
+# "chore(rules): use AnkiQuest-Server rules-<N>", replacing its
+# ankiquest-rules.json (pins.yml does the work).
 #
 # Runs on the `rules-released` repository_dispatch that AnkiQuest-Server's
 # rules release workflow sends (client payload {"tag": "rules-<N>"}), daily

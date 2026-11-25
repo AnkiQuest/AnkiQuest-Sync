@@ -120,7 +120,7 @@ fn missing_file_needs_update() {
 #[test]
 fn title() {
     let (_, out) = run(&["title", &fixture("art-13.json")], None);
-    assert_eq!(out, "Use AnkiQuest-Art art-13\n");
+    assert_eq!(out, "chore(art): use AnkiQuest-Art art-13\n");
 }
 
 #[test]
@@ -166,7 +166,7 @@ fn rules_releases() {
     assert!(run_kind("rules", &["tag", "rules-1"], None).0);
     assert!(!run_kind("rules", &["tag", "art-1"], None).0);
     let (_, out) = run_kind("rules", &["title", &fixture("rules-1.json")], None);
-    assert_eq!(out, "chore: use rules-1\n");
+    assert_eq!(out, "chore(rules): use AnkiQuest-Server rules-1\n");
     let (ok, body) = run_kind(
         "rules",
         &["body", &fixture("rules-1.json"), &fixture("null.json")],

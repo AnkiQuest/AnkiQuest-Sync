@@ -1,5 +1,5 @@
 # Keeps every consumer of AnkiQuest-Art on its latest release: one pull
-# request per consumer, "Use AnkiQuest-Art <tag>", replacing its
+# request per consumer, "chore(art): use AnkiQuest-Art <tag>", replacing its
 # ankiquest-art.json (pins.yml does the work).
 #
 # Runs on the `art-released` repository_dispatch that AnkiQuest-Art's release

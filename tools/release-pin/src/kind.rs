@@ -87,8 +87,8 @@ impl Kind {
     /// The pull request title for release `tag`.
     pub fn title(self, tag: &str) -> String {
         match self {
-            Kind::Art => format!("Use AnkiQuest-Art {tag}"),
-            Kind::Rules => format!("chore: use {tag}"),
+            Kind::Art => format!("chore(art): use AnkiQuest-Art {tag}"),
+            Kind::Rules => format!("chore(rules): use AnkiQuest-Server {tag}"),
         }
     }
 
@@ -114,7 +114,13 @@ mod tests {
 
     #[test]
     fn titles() {
-        assert_eq!(Kind::Art.title("art-13"), "Use AnkiQuest-Art art-13");
-        assert_eq!(Kind::Rules.title("rules-2"), "chore: use rules-2");
+        assert_eq!(
+            Kind::Art.title("art-13"),
+            "chore(art): use AnkiQuest-Art art-13"
+        );
+        assert_eq!(
+            Kind::Rules.title("rules-2"),
+            "chore(rules): use AnkiQuest-Server rules-2"
+        );
     }
 }
