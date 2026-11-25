@@ -43,7 +43,7 @@ jobs:
       zizmor: true
       run: |
         jq empty watched.json art-consumers.json forks.json
-        for tool in tools/art-pin tools/fork-sync; do
+        for tool in tools/art-pin tools/fork-sync tools/source-watch; do
           (
             cd "$tool"
             cargo fmt --check

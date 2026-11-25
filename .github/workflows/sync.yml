@@ -16,9 +16,10 @@
 # watch (watched.json): other sources our branches carry changes from (FSRS-7, kuma3, a
 # new upstream backend version). Their changes need porting by hand, so each source with
 # commits (or a version) newer than its `reviewed` value gets one open issue in the fork
-# it feeds; the issue closes once `reviewed` is updated. They get no merge pull
+# it feeds (in AnkiQuest-Sync, titled with the fork, where the fork has issues
+# disabled); the issue closes once `reviewed` is updated. They get no merge pull
 # request: our branches carry them as rewritten commits, not their history, so a
-# merge would bring every commit again.
+# merge would bring every commit again. tools/source-watch holds the logic.
 #
 # FORK_SYNC_TOKEN: fine-grained token for the AnkiQuest organisation with Contents,
 # Workflows, Pull requests and Issues read and write on every fork below, and Contents
@@ -191,8 +192,13 @@ jobs:
 
   watch:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      issues: write # issues for targets with issues disabled go here
     env:
       GH_TOKEN: ${{ secrets.FORK_SYNC_TOKEN }}
+      FALLBACK_TOKEN: ${{ github.token }}
     steps:
       - name: Require the sync token
         run: |
@@ -205,63 +211,12 @@ jobs:
         with:
           persist-credentials: false
 
-      # One issue per source, titled by source; updated while new, closed once reviewed
-      - name: Report new changes in watched sources
+      - name: Build source-watch
         run: |
-          failed=0
-          while IFS= read -r entry; do
-            get() { jq -r ".$1 // empty" <<<"$entry"; }
-            source=$(get source); ref=$(get ref); kind=$(get kind); target=$(get target)
-            why=$(get why); reviewed=$(get reviewed)
-            title="New upstream changes: $source $ref"
+          cargo build -q --locked --release --manifest-path tools/source-watch/Cargo.toml
+          echo "$PWD/tools/source-watch/target/release" >> "$GITHUB_PATH"
 
-            # Current state of the source: a commit for branches, a version string for versions
-            if [ "$kind" = "version" ]; then
-              file=$(get file); key=$(get key)
-              current=$(gh api "repos/$source/contents/$file?ref=$ref" --jq .content | base64 -d | sed -n "s/^$key=//p" | head -1)
-            else
-              current=$(gh api "repos/$source/commits/$ref" --jq .sha)
-            fi
-            if [ -z "$current" ]; then
-              echo "::error::could not read $source $ref"
-              failed=1
-              continue
-            fi
-
-            open=$(gh issue list --repo "$target" --state open --search "\"$title\" in:title" --json number,title \
-              --jq ".[] | select(.title == \"$title\") | .number" | head -1)
-
-            # Reviewed: close a leftover issue
-            if [ "$current" = "$reviewed" ]; then
-              if [ -n "$open" ]; then
-                gh issue close "$open" --repo "$target" --comment "Reviewed up to $current in AnkiQuest/AnkiQuest-Sync watched.json."
-              fi
-              echo "$source $ref: nothing new" >> "$GITHUB_STEP_SUMMARY"
-              continue
-            fi
-
-            if [ "$kind" = "version" ]; then
-              details="Upstream version is now \`$current\` (reviewed: \`$reviewed\`)."
-            else
-              cmp=$(gh api "repos/$source/compare/$reviewed...$current")
-              count=$(jq .total_commits <<<"$cmp")
-              list=$(jq -r '.commits[-50:][] | "- \(.sha[0:10]) \(.commit.message | split("\n")[0])"' <<<"$cmp")
-              details="$count new commits since \`${reviewed:0:10}\` (latest 50 below): https://github.com/$source/compare/$reviewed...$current
-
-          $list"
-            fi
-            body="Source: https://github.com/$source ($ref). Why we watch it: $why.
-
-          $details
-
-          Port what we need (or decide to skip it), then set \`reviewed\` for this source in AnkiQuest/AnkiQuest-Sync \`watched.json\` to \`$current\`. This issue closes on the next run.
-
-          Opened by AnkiQuest/AnkiQuest-Sync."
-            if [ -n "$open" ]; then
-              gh issue edit "$open" --repo "$target" --body "$body"
-            else
-              gh issue create --repo "$target" --title "$title" --body "$body"
-            fi
-            echo "$source $ref: new ($current), reported in $target" >> "$GITHUB_STEP_SUMMARY"
-          done < <(jq -c '.[]' watched.json)
-          exit "$failed"
+      # One issue per source; every source is checked even when one fails,
+      # and the step fails at the end naming the failed ones
+      - name: Report new changes in watched sources
+        run: source-watch watched.json "$GITHUB_REPOSITORY" "$GITHUB_STEP_SUMMARY"
