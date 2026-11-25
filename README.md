@@ -44,7 +44,9 @@ AnkiQuest-Desktop, AnkiQuest-Android and AnkiQuest.github.io.
 Each carries the pin file `ankiquest-art.json` at its root: the release's
 `tag`, the Art `commit` it was built from, and the SHA-256 of every release
 asset (`android-drawables.zip`, `addon-art.zip`, `masters.zip`,
-`archive.zip`, `manifest.json`, `poses.json`). Every release publishes its own
+`archive.zip`, `manifest.json`, `poses.json`) and, from the releases that
+publish companion packs, of `packs.json` and every `pack-<id>.zip` (the app
+bundles or downloads them). Every release publishes its own
 pin file as an asset, listed in its `SHA256SUMS`. A repository reads the
 entries it needs and checks each asset's hash before using it; before the
 first release its file may have `"tag": null`.
