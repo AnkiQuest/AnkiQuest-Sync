@@ -12,6 +12,14 @@ pub struct Issue {
     pub title: String,
 }
 
+/// An open pull request.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+pub struct Pull {
+    pub number: u64,
+    pub title: String,
+    pub html_url: String,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Commit {
     pub sha: String,
@@ -22,6 +30,27 @@ pub struct Commit {
 pub struct Compare {
     pub total: u64,
     pub commits: Vec<Commit>,
+}
+
+/// How many of the new commits an issue or pull request lists.
+pub const LISTED_COMMITS: usize = 50;
+const SHORT_SHA: usize = 10;
+
+impl Compare {
+    /// The latest LISTED_COMMITS commits, one `- <sha> <subject>` line each.
+    pub fn listing(&self) -> String {
+        let skip = self.commits.len().saturating_sub(LISTED_COMMITS);
+        let lines: Vec<String> = self.commits[skip..]
+            .iter()
+            .map(|c| format!("- {} {}", short(&c.sha), c.subject))
+            .collect();
+        lines.join("\n")
+    }
+}
+
+/// A commit as titles and lists show it.
+pub fn short(sha: &str) -> &str {
+    &sha[..sha.len().min(SHORT_SHA)]
 }
 
 pub trait GitHub {
@@ -39,6 +68,21 @@ pub trait GitHub {
     fn edit_issue(&self, repo: &str, number: u64, body: &str) -> Result<(), String>;
     /// Comments, then closes as completed.
     fn close_issue(&self, repo: &str, number: u64, comment: &str) -> Result<(), String>;
+    fn default_branch(&self, repo: &str) -> Result<String, String>;
+    /// The open pull request from `branch` of the same repository.
+    fn open_pull(&self, repo: &str, branch: &str) -> Result<Option<Pull>, String>;
+    /// Opens a pull request and returns its URL.
+    fn create_pull(&self, repo: &str, pull: &NewPull) -> Result<String, String>;
+    fn edit_pull(&self, repo: &str, number: u64, title: &str, body: &str) -> Result<(), String>;
+}
+
+/// What a new pull request says, and where it goes.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NewPull {
+    pub base: String,
+    pub head: String,
+    pub title: String,
+    pub body: String,
 }
 
 /// `gh api`, with GH_TOKEN from the environment. One repository may use
@@ -177,6 +221,46 @@ impl GitHub for Gh {
             "state_reason=completed",
             "--silent",
         ];
+        self.api(repo, &args)?;
+        Ok(())
+    }
+
+    fn default_branch(&self, repo: &str) -> Result<String, String> {
+        let path = format!("repos/{repo}");
+        let branch = self.api(repo, &[&path, "--jq", ".default_branch"])?;
+        Ok(branch.trim().to_owned())
+    }
+
+    fn open_pull(&self, repo: &str, branch: &str) -> Result<Option<Pull>, String> {
+        let owner = repo.split('/').next().unwrap_or_default();
+        let path = format!("repos/{repo}/pulls?head={owner}:{branch}&state=open");
+        let out = self.api(repo, &[&path, "--jq", ".[0] // empty"])?;
+        if out.trim().is_empty() {
+            return Ok(None);
+        }
+        serde_json::from_str(&out).map_err(|e| format!("{path}: {e}"))
+    }
+
+    fn create_pull(&self, repo: &str, pull: &NewPull) -> Result<String, String> {
+        let path = format!("repos/{repo}/pulls");
+        let fields = [
+            format!("base={}", pull.base),
+            format!("head={}", pull.head),
+            format!("title={}", pull.title),
+            format!("body={}", pull.body),
+        ];
+        let mut args = vec![path.as_str()];
+        for field in &fields {
+            args.extend(["-f", field.as_str()]);
+        }
+        args.extend(["--jq", ".html_url"]);
+        Ok(self.api(repo, &args)?.trim().to_owned())
+    }
+
+    fn edit_pull(&self, repo: &str, number: u64, title: &str, body: &str) -> Result<(), String> {
+        let path = format!("repos/{repo}/pulls/{number}");
+        let (title, body) = (format!("title={title}"), format!("body={body}"));
+        let args = ["-X", "PATCH", &path, "-f", &title, "-f", &body, "--silent"];
         self.api(repo, &args)?;
         Ok(())
     }

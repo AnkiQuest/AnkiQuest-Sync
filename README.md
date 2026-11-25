@@ -88,34 +88,31 @@ optional tag. One run at a time, never cancelled. The logic is
 
 The forks' default branches also carry changes from sources that aren't our
 upstream: JSchoreels' FSRS-7 fork and fsrs-rs fork, kuma3's RWKV core, backend
-and app, and new upstream backend versions. Their changes need porting by
-hand, so the `watch` job only reports them and opens no merge pull request:
+and app, and new upstream backend versions. Each entry in `watched.json` has a
+`mode` saying how its changes reach the fork:
 
-- JSchoreels/anki and kuma3's core, backend and app are carried as rewritten
-  commits ("Carry the fork's FSRS-7 scheduler"), not merged; none of their
-  reviewed commits is in our history. A merge would bring all their commits
-  again, hundreds for JSchoreels/anki, on top of our ports.
-- JSchoreels/fsrs-rs is a dependency pinned by commit in AnkiQuest-Anki's
-  `Cargo.toml`, and open-spaced-repetition/fsrs-rs is its upstream; there is
-  no fork of ours to merge into. Moving the pin is a code change.
-- ankidroid/Anki-Android-Backend's version is a release step, not a merge;
-  its code already comes through the `sync` job.
+| Mode | Sources | What happens | Reviewed |
+|---|---|---|---|
+| `merge` | JSchoreels/anki `main`, kuma3's core `rwkv` (AnkiQuest-Anki); kuma3's backend `rwkv` (AnkiQuest-Android-Backend) | The `sync` job merges it like an upstream, on `sync/<owner>/<repo>-<ref>`, with the same pull request title, body and conflict handling. The fork's `AGENTS.md` is kept as it is. | Once the pull request is merged, the source's commits are in the fork's branch and the next run finds nothing new. No `reviewed` field. |
+| `pin` | JSchoreels/fsrs-rs `main` (`fsrs` in AnkiQuest-Anki's `Cargo.toml`) | The `watch` job moves the `rev` in `Cargo.toml` to the source's head, runs `cargo update -p <package>`, pushes `sync/<owner>/<repo>-<ref>` and opens or updates one pull request, `chore(deps): bump <package> to <owner>/<repo> <commit>`. With that pull request open, it adds to its branch, so fixes pushed there stay. | The commit the fork's default branch pins. No `reviewed` field. |
+| `port` | open-spaced-repetition/fsrs-rs (no fork or pin of ours: it reaches us through JSchoreels/fsrs-rs); kuma3's app `rwkv` (a different app, ported by hand); ankidroid/Anki-Android-Backend's version (`kind: version`, a release step: see its `why`) | The `watch` job opens or updates one issue in the fork it feeds, listing the new commits or the new version. A fork with issues disabled gets the issue here, in AnkiQuest-Sync, titled with the fork's name. | `reviewed`: after porting or skipping, set it to the reported commit or version; the issue closes on the next run. |
 
-For each entry in `watched.json` whose source has moved past `reviewed`, the
-job opens (or updates) one issue in the
-fork it feeds, listing the new commits or the new version. A fork with issues
-disabled gets the issue here, in AnkiQuest-Sync, titled with the fork's name.
-After porting or skipping them, set that entry's `reviewed` to the reported
-commit or version; the issue closes on the next run. Every source is checked
-even when one fails; the job then fails, naming the failed sources. The logic
-is `tools/source-watch`, a Rust tool tested by the `check` workflow.
+A `merge` or `pin` entry closes an issue left from when it was ported. The
+first merge of a source whose commits we carried as rewritten ports brings
+its whole history and conflicts where the ports differ; resolve them on the
+branch once, and later pull requests bring only new commits. Every source is
+checked even when one fails; the job then fails, naming the failed sources.
+The logic is `tools/source-watch` (also the `sync` job's matrix, `source-watch
+matrix forks.json watched.json`), a Rust tool tested by the `check` workflow.
 
 ## Token
 
 Needs the secret `FORK_SYNC_TOKEN`: a fine-grained token for the AnkiQuest
 organisation with Contents, Workflows, Pull requests and Issues read and write
-on the six forks, Contents and Pull requests read and write on the other
-repositories in `TARGETS` and in `art-consumers.json`, and Contents read on
+on the six forks (the `sync` job pushes upstream and watched sources' commits,
+which may change workflows, to `sync/...` branches; the `watch` job pushes pin
+branches and opens their pull requests in the `pin` entries' targets), Contents and Pull requests read
+and write on the other repositories in `TARGETS` and in `art-consumers.json`, and Contents read on
 AnkiQuest-Agents and AnkiQuest-Art. The `watch` job writes AnkiQuest-Sync's own
 issues with the job's `GITHUB_TOKEN`.
 

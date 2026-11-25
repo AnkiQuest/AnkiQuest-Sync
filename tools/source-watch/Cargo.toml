@@ -3,7 +3,7 @@ name = "source-watch"
 version = "0.1.0"
 edition = "2024"
 license = "AGPL-3.0-or-later"
-description = "Reports new changes in AnkiQuest-Sync's watched sources as issues"
+description = "Follows AnkiQuest-Sync's watched sources: sync matrix, pin pull requests and issues"
 publish = false
 
 [dependencies]
