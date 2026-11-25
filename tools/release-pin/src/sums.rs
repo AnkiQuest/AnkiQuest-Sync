@@ -6,7 +6,8 @@ use std::collections::BTreeMap;
 
 use sha2::{Digest, Sha256};
 
-use crate::pin::{self, FILE, Pin, SHA256_LEN};
+use crate::kind::Kind;
+use crate::pin::{self, Pin, SHA256_LEN};
 
 /// `SHA256SUMS` as asset name to hash, in `sha256sum`'s format:
 /// `<hash>  <name>`, or `<hash> *<name>` for binary mode.
@@ -29,33 +30,34 @@ pub fn parse(text: &str) -> Result<BTreeMap<String, String>, String> {
 
 /// Checks a downloaded pin file: its own hash in `SHA256SUMS`, the tag it
 /// was downloaded as, its shape, and each asset hash against `SHA256SUMS`.
-pub fn verify(pin_bytes: &[u8], sums_text: &str, tag: &str) -> Result<Pin, String> {
+pub fn verify(kind: Kind, pin_bytes: &[u8], sums_text: &str, tag: &str) -> Result<Pin, String> {
     let sums = parse(sums_text)?;
+    let file = kind.file();
 
     // The pin file itself, before anything in it is read
     let actual = hex(&Sha256::digest(pin_bytes));
-    match sums.get(FILE) {
-        None => return Err(format!("SHA256SUMS does not list {FILE}")),
+    match sums.get(file) {
+        None => return Err(format!("SHA256SUMS does not list {file}")),
         Some(listed) if *listed != actual => {
             return Err(format!(
-                "{FILE}: SHA-256 {actual}, SHA256SUMS says {listed}"
+                "{file}: SHA-256 {actual}, SHA256SUMS says {listed}"
             ));
         }
         Some(_) => {}
     }
 
-    let pin = Pin::parse(pin_bytes)?;
+    let pin = Pin::parse(kind, pin_bytes)?;
     if pin.tag.as_deref() != Some(tag) {
-        return Err(format!("{FILE}: tag {:?}, release {tag}", pin.tag));
+        return Err(format!("{file}: tag {:?}, release {tag}", pin.tag));
     }
-    pin.check_release()?;
+    pin.check_release(kind)?;
 
     // The hashes consumers will check the assets against
     for (name, hash) in &pin.assets {
         match sums.get(name) {
             None => return Err(format!("SHA256SUMS does not list {name}")),
             Some(listed) if listed != hash => {
-                return Err(format!("{FILE}: {name} {hash}, SHA256SUMS says {listed}"));
+                return Err(format!("{file}: {name} {hash}, SHA256SUMS says {listed}"));
             }
             Some(_) => {}
         }
@@ -70,9 +72,9 @@ fn hex(bytes: &[u8]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::pin::ASSETS;
-
     const TAG: &str = "art-13";
+    const ASSETS: &[&str] = Kind::Art.assets();
+    const FILE: &str = "ankiquest-art.json";
 
     fn pin_json(tag: &str) -> String {
         let assets: Vec<String> = ASSETS
@@ -105,7 +107,7 @@ mod tests {
     #[test]
     fn good_release() {
         let pin = pin_json(TAG);
-        let checked = verify(pin.as_bytes(), &sums_for(&pin), TAG).unwrap();
+        let checked = verify(Kind::Art, pin.as_bytes(), &sums_for(&pin), TAG).unwrap();
         assert_eq!(checked.tag.as_deref(), Some(TAG));
     }
 
@@ -115,7 +117,7 @@ mod tests {
         let sums = sums_for(&pin);
         let altered = pin.replace("\"tag\"", "\"tag\" ");
         assert!(
-            verify(altered.as_bytes(), &sums, TAG)
+            verify(Kind::Art, altered.as_bytes(), &sums, TAG)
                 .unwrap_err()
                 .contains("SHA-256")
         );
@@ -130,7 +132,7 @@ mod tests {
             .map(|l| format!("{l}\n"))
             .collect();
         assert!(
-            verify(pin.as_bytes(), &sums, TAG)
+            verify(Kind::Art, pin.as_bytes(), &sums, TAG)
                 .unwrap_err()
                 .contains("does not list")
         );
@@ -140,7 +142,7 @@ mod tests {
     fn other_tag() {
         let pin = pin_json("art-12");
         assert!(
-            verify(pin.as_bytes(), &sums_for(&pin), TAG)
+            verify(Kind::Art, pin.as_bytes(), &sums_for(&pin), TAG)
                 .unwrap_err()
                 .contains("release art-13")
         );
@@ -151,7 +153,7 @@ mod tests {
         let pin = pin_json(TAG);
         let sums = sums_for(&pin).replacen(&hash_of(2), &hash_of(9), 1);
         assert!(
-            verify(pin.as_bytes(), &sums, TAG)
+            verify(Kind::Art, pin.as_bytes(), &sums, TAG)
                 .unwrap_err()
                 .contains("masters.zip")
         );

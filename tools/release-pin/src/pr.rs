@@ -5,7 +5,8 @@
 
 use std::collections::BTreeSet;
 
-use crate::pin::{ART_REPO, FILE, Pin};
+use crate::kind::Kind;
+use crate::pin::Pin;
 
 /// The pin file on a consumer's default branch.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -17,8 +18,8 @@ pub enum Old {
 
 impl Old {
     /// The consumer's file: None if it has none.
-    pub fn read(bytes: Option<&[u8]>) -> Old {
-        match bytes.map(Pin::parse) {
+    pub fn read(kind: Kind, bytes: Option<&[u8]>) -> Old {
+        match bytes.map(|text| Pin::parse(kind, text)) {
             None => Old::Missing,
             Some(Err(_)) => Old::Unreadable,
             Some(Ok(pin)) => Old::Pinned(pin),
@@ -51,29 +52,31 @@ pub fn status(new: &[u8], old: Option<&[u8]>) -> Status {
     Status::Update
 }
 
-pub fn title(new: &Pin) -> String {
-    format!("Use AnkiQuest-Art {}", tag(new))
+pub fn title(kind: Kind, new: &Pin) -> String {
+    kind.title(tag(new))
 }
 
-/// The pull request body: the old and new tag, the Art commits between
-/// them and every asset hash that changed.
-pub fn body(new: &Pin, old: &Old) -> String {
+/// The pull request body: the old and new tag, the publisher's commits
+/// between them and every asset hash that changed.
+pub fn body(kind: Kind, new: &Pin, old: &Old) -> String {
+    let (file, repo) = (kind.file(), kind.repo());
     let new_tag = tag(new);
     let from = match old {
-        Old::Missing => format!("no `{FILE}`"),
-        Old::Unreadable => format!("an unreadable `{FILE}`"),
+        Old::Missing => format!("no `{file}`"),
+        Old::Unreadable => format!("an unreadable `{file}`"),
         Old::Pinned(Pin { tag: None, .. }) => "no release (`tag` is null)".to_owned(),
         Old::Pinned(Pin { tag: Some(t), .. }) => format!("`{t}`"),
     };
     let mut out = format!(
-        "Moves `{FILE}` from {from} to [`{new_tag}`](https://github.com/{ART_REPO}/releases/tag/{new_tag}).\n\n"
+        "Moves `{file}` from {from} to [`{new_tag}`](https://github.com/{repo}/releases/tag/{new_tag}).\n\n"
     );
 
-    out.push_str(&commits(new, old));
+    out.push_str(&commits(kind, new, old));
     out.push_str("\n\n");
     out.push_str(&assets(new, old));
     out.push_str(&format!(
-        "\nBuilt by {ART_REPO}'s release workflow from art reviewed there. Change the art there, not here.\n\nOpened by AnkiQuest/AnkiQuest-Sync.\n"
+        "\nBuilt by {repo}'s release workflow {}\n\nOpened by AnkiQuest/AnkiQuest-Sync.\n",
+        kind.reviewed()
     ));
     out
 }
@@ -82,17 +85,20 @@ fn tag(pin: &Pin) -> &str {
     pin.tag.as_deref().unwrap_or("(no tag)")
 }
 
-/// The Art commit range, as a compare link where both ends are known.
-fn commits(new: &Pin, old: &Old) -> String {
+/// The publisher's commit range, as a compare link where both ends are known.
+fn commits(kind: Kind, new: &Pin, old: &Old) -> String {
+    let (repo, source) = (kind.repo(), kind.source());
     let new_commit = new.commit.as_deref().unwrap_or_default();
     let old_commit = match old {
         Old::Pinned(pin) => pin.commit.as_deref(),
         _ => None,
     };
     match old_commit {
-        Some(c) if c == new_commit => format!("Same Art commit, `{}`.", short(c)),
-        Some(c) => format!("Art changes: https://github.com/{ART_REPO}/compare/{c}...{new_commit}"),
-        None => format!("Art commit: https://github.com/{ART_REPO}/commit/{new_commit}"),
+        Some(c) if c == new_commit => format!("Same {source} commit, `{}`.", short(c)),
+        Some(c) => {
+            format!("{source} changes: https://github.com/{repo}/compare/{c}...{new_commit}")
+        }
+        None => format!("{source} commit: https://github.com/{repo}/commit/{new_commit}"),
     }
 }
 
@@ -164,10 +170,10 @@ mod tests {
 
     #[test]
     fn reads_old() {
-        assert_eq!(Old::read(None), Old::Missing);
-        assert_eq!(Old::read(Some(b"not json")), Old::Unreadable);
+        assert_eq!(Old::read(Kind::Art, None), Old::Missing);
+        assert_eq!(Old::read(Kind::Art, Some(b"not json")), Old::Unreadable);
         assert!(matches!(
-            Old::read(Some(br#"{"tag": null}"#)),
+            Old::read(Kind::Art, Some(br#"{"tag": null}"#)),
             Old::Pinned(_)
         ));
     }
@@ -175,7 +181,7 @@ mod tests {
     #[test]
     fn titles() {
         assert_eq!(
-            title(&pin(Some("art-13"), None, &[])),
+            title(Kind::Art, &pin(Some("art-13"), None, &[])),
             "Use AnkiQuest-Art art-13"
         );
     }
@@ -192,7 +198,7 @@ mod tests {
             Some("bbb"),
             &[("masters.zip", "3"), ("poses.json", "2")],
         );
-        let text = body(&new, &Old::Pinned(old));
+        let text = body(Kind::Art, &new, &Old::Pinned(old));
         assert!(text.starts_with("Moves `ankiquest-art.json` from `art-12` to [`art-13`]"));
         assert!(text.contains("https://github.com/AnkiQuest/AnkiQuest-Art/compare/aaa...bbb"));
         assert!(text.contains("| `masters.zip` | `1` | `3` |"));
@@ -203,7 +209,7 @@ mod tests {
     fn body_from_null_tag() {
         let old = pin(None, None, &[]);
         let new = pin(Some("art-1"), Some("bbb"), &[("masters.zip", "3")]);
-        let text = body(&new, &Old::Pinned(old));
+        let text = body(Kind::Art, &new, &Old::Pinned(old));
         assert!(text.contains("from no release (`tag` is null)"));
         assert!(text.contains("/commit/bbb"));
         assert!(text.contains("| `masters.zip` | none | `3` |"));
@@ -212,8 +218,25 @@ mod tests {
     #[test]
     fn body_from_missing_file() {
         let new = pin(Some("art-1"), Some("bbb"), &[("masters.zip", "3")]);
-        assert!(body(&new, &Old::Missing).contains("from no `ankiquest-art.json`"));
-        assert!(body(&new, &Old::Unreadable).contains("from an unreadable"));
+        assert!(body(Kind::Art, &new, &Old::Missing).contains("from no `ankiquest-art.json`"));
+        assert!(body(Kind::Art, &new, &Old::Unreadable).contains("from an unreadable"));
+    }
+
+    #[test]
+    fn rules_body_links_the_server() {
+        let new = pin(
+            Some("rules-2"),
+            Some("bbb"),
+            &[("ankiquest_rules.wasm", "3")],
+        );
+        let text = body(Kind::Rules, &new, &Old::Missing);
+        assert!(text.starts_with("Moves `ankiquest-rules.json` from no `ankiquest-rules.json` to [`rules-2`](https://github.com/AnkiQuest/AnkiQuest-Server/releases/tag/rules-2)."));
+        assert!(
+            text.contains(
+                "Server commit: https://github.com/AnkiQuest/AnkiQuest-Server/commit/bbb"
+            )
+        );
+        assert!(text.contains("Change the rules there"));
     }
 
     #[test]
@@ -224,7 +247,7 @@ mod tests {
             Some("0123456789abcdef"),
             &[("masters.zip", "3")],
         );
-        let text = body(&new, &Old::Pinned(new.clone()));
+        let text = body(Kind::Art, &new, &Old::Pinned(new.clone()));
         assert!(text.contains("Same Art commit, `0123456789`."));
         assert!(text.contains("No asset changed."));
     }
@@ -233,6 +256,6 @@ mod tests {
     fn body_removed_asset() {
         let old = pin(Some("art-1"), Some("a"), &[("old.zip", "1")]);
         let new = pin(Some("art-2"), Some("b"), &[]);
-        assert!(body(&new, &Old::Pinned(old)).contains("| `old.zip` | `1` | removed |"));
+        assert!(body(Kind::Art, &new, &Old::Pinned(old)).contains("| `old.zip` | `1` | removed |"));
     }
 }

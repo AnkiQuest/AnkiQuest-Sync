@@ -1,4 +1,4 @@
-# Lints the workflows, checks the flake and tests tools/art-pin on pull
+# Lints the workflows, checks the flake and tests tools/release-pin on pull
 # requests and on master, with AnkiQuest-Dev's shared Nix check.
 name: Check
 
@@ -41,8 +41,8 @@ jobs:
       format: ""
       actionlint: true
       run: |
-        jq empty watched.json art-consumers.json
-        cd tools/art-pin
+        jq empty watched.json release-consumers.json
+        cd tools/release-pin
         cargo fmt --check
         cargo clippy --locked --all-targets -- -D warnings
         cargo test --locked

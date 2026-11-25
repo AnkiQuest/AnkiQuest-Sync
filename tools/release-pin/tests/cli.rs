@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-//! The commands as art.yml runs them, on fixtures that follow the contract:
+//! The commands as pins.yml runs them, on fixtures that follow the contract:
 //! a consumer on art-12 and the art-13 release, which changes masters.zip
 //! and poses.json.
 
@@ -8,7 +8,7 @@ use std::fs;
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
 
-const BIN: &str = env!("CARGO_BIN_EXE_art-pin");
+const BIN: &str = env!("CARGO_BIN_EXE_release-pin");
 
 fn fixture(name: &str) -> String {
     let path: PathBuf = [env!("CARGO_MANIFEST_DIR"), "tests", "fixtures", name]
@@ -17,13 +17,23 @@ fn fixture(name: &str) -> String {
     path.to_string_lossy().into_owned()
 }
 
-/// Runs art-pin; returns whether it succeeded and its stdout.
+/// Runs release-pin for Art releases; returns whether it succeeded and its stdout.
 fn run(args: &[&str], stdin: Option<&str>) -> (bool, String) {
+    run_kind("art", args, stdin)
+}
+
+/// Runs release-pin for releases of `kind`.
+fn run_kind(kind: &str, args: &[&str], stdin: Option<&str>) -> (bool, String) {
     let input = match stdin {
         Some(name) => Stdio::from(fs::File::open(fixture(name)).unwrap()),
         None => Stdio::null(),
     };
-    let out = Command::new(BIN).args(args).stdin(input).output().unwrap();
+    let out = Command::new(BIN)
+        .arg(kind)
+        .args(args)
+        .stdin(input)
+        .output()
+        .unwrap();
     (out.status.success(), String::from_utf8(out.stdout).unwrap())
 }
 
@@ -141,4 +151,34 @@ fn body_from_null_tag() {
     );
     assert!(body.contains("from no release (`tag` is null)"));
     assert_eq!(body.lines().filter(|l| l.starts_with("| `")).count(), 6);
+}
+
+#[test]
+fn rules_releases() {
+    assert_eq!(
+        run_kind("rules", &["file"], None),
+        (true, "ankiquest-rules.json\n".into())
+    );
+    assert_eq!(
+        run_kind("rules", &["repo"], None),
+        (true, "AnkiQuest/AnkiQuest-Server\n".into())
+    );
+    assert!(run_kind("rules", &["tag", "rules-1"], None).0);
+    assert!(!run_kind("rules", &["tag", "art-1"], None).0);
+    let (_, out) = run_kind("rules", &["title", &fixture("rules-1.json")], None);
+    assert_eq!(out, "chore: use rules-1\n");
+    let (ok, body) = run_kind(
+        "rules",
+        &["body", &fixture("rules-1.json"), &fixture("null.json")],
+        None,
+    );
+    assert!(ok);
+    assert_eq!(body.lines().filter(|l| l.starts_with("| `")).count(), 7);
+}
+
+#[test]
+fn kind_is_required() {
+    assert!(!run_kind("pictures", &["file"], None).0);
+    let out = Command::new(BIN).output().unwrap();
+    assert!(!out.status.success());
 }

@@ -34,35 +34,43 @@ type `agents-changed`, which AnkiQuest-Agents sends when its default branch chan
 The repositories are the `TARGETS` list in that workflow; `AGENTS.md` lives on
 each one's default branch, read from GitHub.
 
-## AnkiQuest-Art releases
+## Release pins
 
-The `art` job (`.github/workflows/art.yml`) keeps every repository that uses
-companion art on the latest [AnkiQuest-Art](https://github.com/AnkiQuest/AnkiQuest-Art)
-release. The repositories are listed in `art-consumers.json`: AnkiQuest-Server,
-AnkiQuest-Desktop, AnkiQuest-Android and AnkiQuest.github.io.
+Two kinds of release are pinned in the repositories that use them, each by a
+pin file at the repository's root:
 
-Each carries the pin file `ankiquest-art.json` at its root: the release's
-`tag`, the Art `commit` it was built from, and the SHA-256 of every release
-asset (`android-drawables.zip`, `addon-art.zip`, `masters.zip`,
-`archive.zip`, `manifest.json`, `poses.json`). Every release publishes its own
-pin file as an asset, listed in its `SHA256SUMS`. A repository reads the
-entries it needs and checks each asset's hash before using it; before the
-first release its file may have `"tag": null`.
+| Kind | Publisher | Tags | Pin file | Pull request | Job |
+| --- | --- | --- | --- | --- | --- |
+| `art` | [AnkiQuest-Art](https://github.com/AnkiQuest/AnkiQuest-Art) | `art-<N>` | `ankiquest-art.json` | "Use AnkiQuest-Art <tag>" | `art` (`.github/workflows/art.yml`) |
+| `rules` | [AnkiQuest-Server](https://github.com/AnkiQuest/AnkiQuest-Server) (`crates/rules`) | `rules-<N>` | `ankiquest-rules.json` | "chore: use rules-<N>" | `rules` (`.github/workflows/rules.yml`) |
 
-The job downloads the release's `ankiquest-art.json` and `SHA256SUMS`, checks
-the pin file against them, and compares it byte for byte with each
-repository's copy on its default branch (a missing file differs). Where it
-differs, it pushes branch `art-release` with only that file replaced and opens
-or updates one pull request, "Use AnkiQuest-Art <tag>", listing the old and
-new tag, the Art compare link and the asset hashes that changed. With that
-pull request open, it adds to the branch instead of starting it again.
+`release-consumers.json` lists the repositories of each kind: for `art`,
+AnkiQuest-Server, AnkiQuest-Desktop, AnkiQuest-Android and AnkiQuest.github.io;
+for `rules`, AnkiQuest-Desktop.
 
-It runs on a `repository_dispatch` of type `art-released` with client payload
-`{"tag": "art-<N>"}`, which AnkiQuest-Art's release workflow sends after
-publishing; daily, taking the latest `art-<N>` release; and on demand, with an
-optional tag. One run at a time, never cancelled. The logic is
-`tools/art-pin`, a Rust tool tested by the `check` workflow
-(`cargo test` in `tools/art-pin`).
+A pin file holds the release's `tag`, the publisher `commit` it was built
+from, and the SHA-256 of every release asset. Art's assets are
+`android-drawables.zip`, `addon-art.zip`, `masters.zip`, `archive.zip`,
+`manifest.json` and `poses.json`; the rules' are `ankiquest_rules.wasm`,
+`ankiquest_rules.py` and the native library of each desktop platform. Every
+release publishes its own pin file as an asset, listed in its `SHA256SUMS`.
+A repository reads the entries it needs and checks each asset's hash before
+using it; before the first release its file may have `"tag": null`.
+
+Both jobs call `.github/workflows/pins.yml`. It downloads the release's pin
+file and `SHA256SUMS`, checks the pin file against them, and compares it byte
+for byte with each repository's copy on its default branch (a missing file
+differs). Where it differs, it pushes branch `<kind>-release` with only that
+file replaced and opens or updates one pull request, listing the old and new
+tag, the publisher's compare link and the asset hashes that changed. With
+that pull request open, it adds to the branch instead of starting it again.
+
+Each job runs on a `repository_dispatch` (`art-released` or `rules-released`,
+client payload `{"tag": "<tag>"}`) that the publisher's release workflow sends
+after publishing; daily, taking the latest release of its kind; and on demand,
+with an optional tag. One run of each kind at a time, never cancelled. The
+logic is `tools/release-pin` (`release-pin <kind> <command>`), a Rust tool
+tested by the `check` workflow (`cargo test` in `tools/release-pin`).
 
 ## Watched sources
 
@@ -80,8 +88,8 @@ the issue closes on the next run.
 Needs the secret `FORK_SYNC_TOKEN`: a fine-grained token for the AnkiQuest
 organisation with Contents, Workflows, Pull requests and Issues read and write
 on the six forks, Contents and Pull requests read and write on the other
-repositories in `TARGETS` and in `art-consumers.json`, and Contents read on
-AnkiQuest-Agents and AnkiQuest-Art.
+repositories in `TARGETS` and in `release-consumers.json`, and Contents read on
+AnkiQuest-Agents, AnkiQuest-Art and AnkiQuest-Server.
 
 ## Licence
 

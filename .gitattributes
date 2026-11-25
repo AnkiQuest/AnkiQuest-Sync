@@ -1,2 +1,2 @@
 # Fixture bytes are hashed in SHA256SUMS; keep them exactly as committed.
-tools/art-pin/tests/fixtures/** -text
+tools/release-pin/tests/fixtures/** -text

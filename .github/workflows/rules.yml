@@ -1,0 +1,38 @@
+# Keeps every consumer of AnkiQuest-Server's shared rules on the latest
+# rules release: one pull request per consumer, "chore: use rules-<N>",
+# replacing its ankiquest-rules.json (pins.yml does the work).
+#
+# Runs on the `rules-released` repository_dispatch that AnkiQuest-Server's
+# rules release workflow sends (client payload {"tag": "rules-<N>"}), daily
+# as a fallback, and on demand with an optional tag (empty: the latest).
+name: Pin AnkiQuest-Server rules releases
+
+on:
+  repository_dispatch:
+    types: [rules-released]
+  schedule:
+    - cron: "53 3 * * *"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release to pin (rules-<N>); empty for the latest"
+        type: string
+        default: ""
+
+permissions:
+  contents: read
+
+# One writer at a time; a run is never cancelled.
+concurrency:
+  group: rules
+  cancel-in-progress: false
+
+jobs:
+  rules:
+    uses: ./.github/workflows/pins.yml
+    with:
+      kind: rules
+      tag: ${{ inputs.tag || '' }}
+      dispatched: ${{ github.event.client_payload.tag || '' }}
+    secrets:
+      FORK_SYNC_TOKEN: ${{ secrets.FORK_SYNC_TOKEN }}

@@ -1,9 +1,9 @@
 [package]
-name = "art-pin"
+name = "release-pin"
 version = "0.1.0"
 edition = "2024"
 license = "AGPL-3.0-or-later"
-description = "Checks AnkiQuest-Art release pin files and writes the pull requests that update them"
+description = "Checks AnkiQuest-Art and AnkiQuest-Server rules release pin files and writes the pull requests that update them"
 publish = false
 
 [dependencies]

@@ -1,0 +1,11 @@
+{
+  "art": [
+    "AnkiQuest/AnkiQuest-Server",
+    "AnkiQuest/AnkiQuest-Desktop",
+    "AnkiQuest/AnkiQuest-Android",
+    "AnkiQuest/AnkiQuest.github.io"
+  ],
+  "rules": [
+    "AnkiQuest/AnkiQuest-Desktop"
+  ]
+}
