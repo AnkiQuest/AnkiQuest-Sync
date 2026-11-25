@@ -80,9 +80,11 @@ jobs:
           if [ -z "$tag" ]; then
             echo "$publisher has no $KIND release yet" >> "$GITHUB_STEP_SUMMARY"
           fi
-          echo "tag=$tag" >> "$GITHUB_OUTPUT"
-          echo "publisher=$publisher" >> "$GITHUB_OUTPUT"
-          echo "file=$(release-pin "$KIND" file)" >> "$GITHUB_OUTPUT"
+          {
+            echo "tag=$tag"
+            echo "publisher=$publisher"
+            echo "file=$(release-pin "$KIND" file)"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Download and check the pin file
         if: steps.release.outputs.tag != ''
