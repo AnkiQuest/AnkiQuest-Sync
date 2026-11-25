@@ -122,6 +122,9 @@ jobs:
           path: fork
           token: ${{ secrets.FORK_SYNC_TOKEN }}
           fetch-depth: 0
+          # The merge step pushes the sync branch to the fork with this
+          # token. No later step runs code from the fork or upstream.
+          persist-credentials: true # zizmor: ignore[artipacked]
 
       - name: Build fork-sync
         if: steps.compare.outputs.upstream_new != '0'
@@ -199,6 +202,8 @@ jobs:
           fi
 
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       # One issue per source, titled by source; updated while new, closed once reviewed
       - name: Report new changes in watched sources
