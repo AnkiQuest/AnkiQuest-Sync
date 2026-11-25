@@ -2,7 +2,7 @@
 # in art-consumers.json carries the release's pin file, ankiquest-art.json, at
 # its root. Where it differs from the release's, the job pushes branch
 # art-release there with only that file replaced and opens (or updates) one
-# pull request, "Use AnkiQuest-Art <tag>".
+# pull request, "chore(art): use AnkiQuest-Art <tag>".
 #
 # Runs on the `art-released` repository_dispatch that AnkiQuest-Art's release
 # workflow sends (client payload {"tag": "art-<N>"}), daily as a fallback, and

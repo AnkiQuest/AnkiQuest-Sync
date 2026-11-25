@@ -1,21 +1,17 @@
 # Writes each AnkiQuest repository's AGENTS.md from AnkiQuest/AnkiQuest-Agents:
-# shared.md, a blank line, repos/<repository>.md. A fork's AGENTS.md then carries
-# its upstream's own guidance (CLAUDE.md, or AGENTS.md where CLAUDE.md only points
-# at it) under an "Upstream guidance" heading, so upstream's rules are kept and
-# tracked, not overwritten: when upstream edits its file, the next run takes the
-# new text along in the same pull request. CLAUDE.md becomes "@AGENTS.md" in
-# every repository (the upstream text lives in AGENTS.md now). Where either file
-# differs from the repository's branch, the job pushes branch agents-sync there
-# and opens (or updates) one pull request.
+# shared.md, a blank line, repos/<repository>.md. A fork's AGENTS.md ends with
+# an "Upstream guidance" section, upstream's own CLAUDE.md and AGENTS.md; the
+# sync job (sync.yml) writes it when it merges upstream, and this job keeps it
+# as the repository's branch has it, so the two jobs never change the same
+# text. CLAUDE.md is "@AGENTS.md" in every repository. Where either file
+# differs from the repository's branch, the job pushes branch agents-sync
+# there and opens (or updates) one pull request.
 #
 # TARGETS: the repositories; AGENTS.md lives on each one's default branch.
-# UPSTREAMS: a fork's upstream, whose guidance is appended; forks whose upstream
-# has no guidance file of its own are left out.
+# tools/fork-sync writes the file (`fork-sync agents ... keep`).
 #
 # FORK_SYNC_TOKEN: see sync.yml; it also needs Contents and Pull requests read and
 # write on every repository in TARGETS, and Contents read on AnkiQuest-Agents.
-#
-# The per-repository logic is shell glue; if it grows, move it to a Rust tool here.
 name: Distribute AGENTS.md
 
 on:
@@ -51,20 +47,6 @@ env:
       "AnkiQuest/AnkiQuest.github.io"
     ]
 
-  # A fork's upstream: its own guidance (CLAUDE.md, or AGENTS.md) is appended to
-  # the fork's AGENTS.md when it exists; an upstream without a guidance file
-  # contributes nothing. Reuse the list in sync.yml's matrix, whose "upstream"
-  # these must mirror.
-  UPSTREAMS: |
-    {
-      "AnkiQuest/AnkiQuest-Anki": "ankitects/anki",
-      "AnkiQuest/AnkiQuest-Android": "ankidroid/Anki-Android",
-      "AnkiQuest/AnkiQuest-Android-Backend": "ankidroid/Anki-Android-Backend",
-      "AnkiQuest/AnkiQuest-GarmAnki": "sypianski/garmanki",
-      "AnkiQuest/AnkiQuest-Android-MCP": "ankimcp/ankidroid-mcp",
-      "AnkiQuest/AnkiQuest-AnkiConnectAndroid": "KamWithK/AnkiconnectAndroid"
-    }
-
 jobs:
   agents:
     runs-on: ubuntu-latest
@@ -86,12 +68,23 @@ jobs:
           token: ${{ secrets.FORK_SYNC_TOKEN }}
           persist-credentials: false
 
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: sync
+          persist-credentials: false
+
+      - name: Build fork-sync
+        run: |
+          cargo build -q --locked --release --manifest-path sync/tools/fork-sync/Cargo.toml
+          echo "$PWD/sync/tools/fork-sync/target/release" >> "$GITHUB_PATH"
+
       - name: Open the pull requests
         run: |
           git config --global user.name "github-actions[bot]"
           git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
           gh auth setup-git
           source_sha=$(git -C source rev-parse HEAD)
+          title="chore(agents): update AGENTS.md from AnkiQuest-Agents"
           failed=0
 
           for repo in $(jq -r '.[]' <<<"$TARGETS"); do
@@ -106,34 +99,8 @@ jobs:
             git clone -q --depth 1 --filter=blob:none --sparse -b "$branch" "https://github.com/$repo.git" "$dir"
             git -C "$dir" sparse-checkout set --no-cone /AGENTS.md /CLAUDE.md
 
-            { cat source/shared.md; echo; cat "$section"; } > agents.md
-
-            # The fork's upstream keeps its own guidance inside AGENTS.md: take
-            # CLAUDE.md, or AGENTS.md where CLAUDE.md only points at it, and skip
-            # indirection files (a first line of "@..."). An upstream with neither
-            # contributes nothing, and any change to its wording lands in the next
-            # agents-sync pull request.
-            upstream=$(jq -r --arg repo "$repo" '.[$repo] // empty' <<<"$UPSTREAMS")
-            if [ -n "$upstream" ]; then
-              for path in CLAUDE.md AGENTS.md; do
-                text=$(gh api "repos/$upstream/contents/$path" --jq '.content' 2>/dev/null | tr -d '\n' | base64 -d || true)
-                # Missing, or a file that only points at another ("@..."): try the next.
-                skipped=$(head -n1 <<<"$text")
-                if [ -z "$text" ] || [ "${skipped#@}" != "$skipped" ]; then
-                  continue
-                fi
-                {
-                  echo
-                  echo "## Upstream guidance"
-                  echo
-                  echo "From [$upstream](https://github.com/$upstream)'s $path, kept here so the fork still follows the originating project's own rules where AnkiQuest's do not override them; this job refreshes the wording when upstream changes it."
-                  echo
-                  printf '%s\n' "$text"
-                } >> agents.md
-                break
-              done
-            fi
-
+            # The fork's upstream guidance stays as the branch has it; the sync job updates it
+            fork-sync agents source/shared.md "$section" keep "$dir/AGENTS.md" > agents.md
             echo "@AGENTS.md" > claude.md
 
             # A symlinked AGENTS.md (upstream Anki links it to CLAUDE.md) counts as different
@@ -157,18 +124,20 @@ jobs:
             if git -C "$dir" diff --cached --quiet; then
               echo "$repo: pull request #$open is up to date"; continue
             fi
-            git -C "$dir" commit -q -m "Update AGENTS.md from AnkiQuest-Agents" \
+            git -C "$dir" commit -q -m "$title" \
               -m "Generated from AnkiQuest/AnkiQuest-Agents $source_sha: shared.md and repos/${repo#*/}.md."
             if ! git -C "$dir" push -q origin agents-sync; then
               echo "::error::$repo: push failed"; failed=1; continue
             fi
 
+            # Older pull requests get the current title, which the squash commit takes
             if [ -n "$open" ]; then
+              gh api -X PATCH "repos/$repo/pulls/$open" -f title="$title" --silent
               echo "$repo: updated pull request #$open" >> "$GITHUB_STEP_SUMMARY"; continue
             fi
             url=$(gh api "repos/$repo/pulls" --jq .html_url \
               -f base="$branch" -f head=agents-sync \
-              -f title="Update AGENTS.md from AnkiQuest-Agents" \
+              -f title="$title" \
               -f body="Generated from AnkiQuest/AnkiQuest-Agents $source_sha. Change the rules there, not here: shared.md for all repositories, repos/${repo#*/}.md for this one.
 
           Opened by AnkiQuest/AnkiQuest-Sync.")

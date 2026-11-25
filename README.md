@@ -12,27 +12,45 @@ Keeps AnkiQuest's forks up to date with upstream, once a day and on demand
 | AnkiQuest/AnkiQuest-Android-MCP | ankimcp/ankidroid-mcp `main` |
 | AnkiQuest/AnkiQuest-AnkiConnectAndroid | KamWithK/AnkiconnectAndroid `master` |
 
-Each fork's default branch carries upstream plus our changes. The job opens one pull
-request from upstream's branch, lists conflicting files in the run summary,
-and leaves it open until merged. Merge with a merge commit.
+Each fork's default branch carries upstream plus our changes. The `sync` job
+merges upstream's branch into `sync/<owner>/<repo>` on the fork and opens one
+pull request from it, `chore(sync): merge upstream <owner>/<repo> at <commit>`.
+Later runs merge newer upstream commits into the same branch and update that
+pull request; it stays open until merged.
 
-The list of forks is the matrix in `.github/workflows/sync.yml`.
+- **Conflicts** never stop the merge. Conflicting files are committed with
+  their markers and submodules keep our commit; the pull request lists both
+  and opens as a draft. Fix them on the `sync/...` branch and push. The next
+  run adds to the branch and rewrites the list.
+- **Merging**: with a merge commit, outside the merge queue (the queue
+  squashes), so the fork keeps upstream's history.
+- **AGENTS.md**: the merge writes `AGENTS.md` and `CLAUDE.md` as the `agents`
+  job does, with the "Upstream guidance" section taken from the merged
+  upstream commit. When upstream changes its own `CLAUDE.md` or `AGENTS.md`,
+  the pull request says so.
+
+The forks are listed in `forks.json`, read by `sync.yml` and `agents.yml`. The
+logic is `tools/fork-sync`, a Rust tool tested by the `check` workflow
+(`cargo test` in `tools/fork-sync`); the workflows only call `gh` and `git`
+around it.
 
 ## AGENTS.md
 
 The `agents` job (`.github/workflows/agents.yml`) writes each repository's
 `AGENTS.md` from [AnkiQuest-Agents](https://github.com/AnkiQuest/AnkiQuest-Agents):
-`shared.md`, a blank line, `repos/<repository>.md`; a fork's AGENTS.md then
-carries its upstream's own guidance (the upstream's `CLAUDE.md`, or `AGENTS.md`
-where `CLAUDE.md` only points at it; nothing when the upstream has neither)
-under an "Upstream guidance" heading, so upstream's rules are kept and tracked
-rather than overwritten. `CLAUDE.md` becomes `@AGENTS.md` in every repository,
-since the upstream guidance now lives in `AGENTS.md`. Where either differs, it
-pushes branch `agents-sync` and opens or updates one pull request, "Update AGENTS.md from
-AnkiQuest-Agents". It runs daily, on demand, and on a `repository_dispatch` of
-type `agents-changed`, which AnkiQuest-Agents sends when its default branch changes.
-The repositories are the `TARGETS` list in that workflow; `AGENTS.md` lives on
-each one's default branch, read from GitHub.
+`shared.md`, a blank line, `repos/<repository>.md`. A fork's `AGENTS.md` ends
+with an "Upstream guidance" section: upstream's own `CLAUDE.md` and
+`AGENTS.md`, verbatim, at the upstream commit the fork last merged (files that
+only point at another, such as `@AGENTS.md` or a symlink, and duplicates are
+left out). The `sync` job writes that section; this job keeps it as the fork's
+branch has it, so the two never change the same text. `CLAUDE.md` is
+`@AGENTS.md` in every repository. Where either differs, it pushes branch
+`agents-sync` and opens or updates one pull request,
+`chore(agents): update AGENTS.md from AnkiQuest-Agents`. It runs daily, on
+demand, and on a `repository_dispatch` of type `agents-changed`, which
+AnkiQuest-Agents sends when its default branch changes. The repositories are
+the `TARGETS` list in that workflow; `AGENTS.md` lives on each one's default
+branch, read from GitHub.
 
 ## AnkiQuest-Art releases
 
@@ -55,7 +73,7 @@ The job downloads the release's `ankiquest-art.json` and `SHA256SUMS`, checks
 the pin file against them, and compares it byte for byte with each
 repository's copy on its default branch (a missing file differs). Where it
 differs, it pushes branch `art-release` with only that file replaced and opens
-or updates one pull request, "Use AnkiQuest-Art <tag>", listing the old and
+or updates one pull request, `chore(art): use AnkiQuest-Art <tag>`, listing the old and
 new tag, the Art compare link and the asset hashes that changed. With that
 pull request open, it adds to the branch instead of starting it again.
 
@@ -71,8 +89,20 @@ optional tag. One run at a time, never cancelled. The logic is
 The forks' default branches also carry changes from sources that aren't our
 upstream: JSchoreels' FSRS-7 fork and fsrs-rs fork, kuma3's RWKV core, backend
 and app, and new upstream backend versions. Their changes need porting by
-hand, so the `watch` job only reports them: for each entry in `watched.json`
-whose source has moved past `reviewed`, it opens (or updates) one issue in the
+hand, so the `watch` job only reports them and opens no merge pull request:
+
+- JSchoreels/anki and kuma3's core, backend and app are carried as rewritten
+  commits ("Carry the fork's FSRS-7 scheduler"), not merged; none of their
+  reviewed commits is in our history. A merge would bring all their commits
+  again, hundreds for JSchoreels/anki, on top of our ports.
+- JSchoreels/fsrs-rs is a dependency pinned by commit in AnkiQuest-Anki's
+  `Cargo.toml`, and open-spaced-repetition/fsrs-rs is its upstream; there is
+  no fork of ours to merge into. Moving the pin is a code change.
+- ankidroid/Anki-Android-Backend's version is a release step, not a merge;
+  its code already comes through the `sync` job.
+
+For each entry in `watched.json` whose source has moved past `reviewed`, the
+job opens (or updates) one issue in the
 fork it feeds, listing the new commits or the new version. After porting or
 skipping them, set that entry's `reviewed` to the reported commit or version;
 the issue closes on the next run.

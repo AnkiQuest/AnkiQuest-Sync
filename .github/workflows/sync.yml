@@ -1,18 +1,30 @@
 # Keeps AnkiQuest's forks up to date with their upstream repositories.
 #
-# Each fork's default branch carries upstream plus our changes. A pull request from
-# upstream's default branch into it is opened (or kept open); it lists conflicting files. Merge
-# it with a merge commit so the fork keeps upstream's history.
+# sync (forks.json): each fork's default branch carries upstream plus our
+# changes. The job merges upstream's branch into sync/<owner>/<repo> on the
+# fork and opens one pull request from it, "chore(sync): merge upstream
+# <owner>/<repo> at <commit>"; later runs add merges to the same branch and
+# update that pull request. A conflict never stops the merge: files are
+# committed with their markers and submodules keep our commit, and the
+# pull request lists what is left, so people fix it on the branch. In the
+# merge, AGENTS.md and CLAUDE.md are written from AnkiQuest-Agents and the
+# merged upstream's own CLAUDE.md and AGENTS.md (the "Upstream guidance"
+# section), so a change to upstream's guidance arrives in this pull request.
+# Merge it with a merge commit, outside the merge queue, so the fork keeps
+# upstream's history. tools/fork-sync holds the logic.
 #
 # watch (watched.json): other sources our branches carry changes from (FSRS-7, kuma3, a
 # new upstream backend version). Their changes need porting by hand, so each source with
 # commits (or a version) newer than its `reviewed` value gets one open issue in the fork
-# it feeds; the issue closes once `reviewed` is updated.
+# it feeds; the issue closes once `reviewed` is updated. They get no merge pull
+# request: our branches carry them as rewritten commits, not their history, so a
+# merge would bring every commit again.
 #
 # FORK_SYNC_TOKEN: fine-grained token for the AnkiQuest organisation with Contents,
-# Workflows, Pull requests and Issues read and write on every fork below. GITHUB_TOKEN
-# can't be used: it cannot write to other repositories, cannot push upstream commits
-# that change workflows, and pull requests it opens start no CI.
+# Workflows, Pull requests and Issues read and write on every fork below, and Contents
+# read on AnkiQuest-Agents. GITHUB_TOKEN can't be used: it cannot write to other
+# repositories, cannot push upstream commits that change workflows, and pull requests
+# it opens start no CI.
 name: Sync forks with upstream
 
 on:
@@ -23,6 +35,10 @@ on:
 permissions:
   contents: read
 
+defaults:
+  run:
+    shell: bash
+
 # One run at a time, never cancelled: two runs would both open pull requests
 # or issues. A newer run waits for the running one.
 concurrency:
@@ -30,23 +46,33 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  sync:
+  # The matrix: forks.json, shared with agents.yml
+  forks:
     runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      list: ${{ steps.read.outputs.list }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - id: read
+        run: echo "list=$(jq -c . forks.json)" >> "$GITHUB_OUTPUT"
+
+  sync:
+    needs: forks
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - { fork: AnkiQuest/AnkiQuest-Android, upstream: ankidroid/Anki-Android, upstream_branch: main }
-          - { fork: AnkiQuest/AnkiQuest-Anki, upstream: ankitects/anki, upstream_branch: main }
-          - { fork: AnkiQuest/AnkiQuest-Android-Backend, upstream: ankidroid/Anki-Android-Backend, upstream_branch: main }
-          - { fork: AnkiQuest/AnkiQuest-GarmAnki, upstream: sypianski/garmanki, upstream_branch: master }
-          - { fork: AnkiQuest/AnkiQuest-Android-MCP, upstream: ankimcp/ankidroid-mcp, upstream_branch: main }
-          - { fork: AnkiQuest/AnkiQuest-AnkiConnectAndroid, upstream: KamWithK/AnkiconnectAndroid, upstream_branch: master }
+        include: ${{ fromJSON(needs.forks.outputs.list) }}
     env:
       GH_TOKEN: ${{ secrets.FORK_SYNC_TOKEN }}
       FORK: ${{ matrix.fork }}
       UPSTREAM: ${{ matrix.upstream }}
       UPSTREAM_BRANCH: ${{ matrix.upstream_branch }}
+      SYNC: sync/${{ matrix.upstream }}
     steps:
       - name: Require the sync token
         run: |
@@ -55,64 +81,110 @@ jobs:
             exit 1
           fi
 
-      # BRANCH: the fork's default branch, read rather than assumed
-      - name: Find the fork's branch
-        run: echo "BRANCH=$(gh api "repos/$FORK" --jq .default_branch)" >> "$GITHUB_ENV"
+      # BRANCH: the fork's default branch, read rather than assumed.
+      # OPEN: the open sync pull request, if any.
+      - name: Find the fork's branches
+        run: |
+          echo "BRANCH=$(gh api "repos/$FORK" --jq .default_branch)" >> "$GITHUB_ENV"
+          open=$(gh api "repos/$FORK/pulls?head=${FORK%%/*}:$SYNC&state=open" --jq '.[0].number // empty')
+          echo "OPEN=$open" >> "$GITHUB_ENV"
 
-      # upstream_new: upstream commits the fork lacks
+      # upstream_new: upstream commits the sync branch (or, without an open
+      # pull request, the fork's branch) lacks. Cheap, so quiet days clone nothing.
       - name: Compare with upstream
         id: compare
         run: |
-          owner="${UPSTREAM%%/*}"
-          echo "upstream_new=$(gh api "repos/$FORK/compare/$BRANCH...$owner:$UPSTREAM_BRANCH" --jq .ahead_by)" >> "$GITHUB_OUTPUT"
+          head="$BRANCH"
+          if [ -n "$OPEN" ]; then
+            head="$SYNC"
+          fi
+          echo "upstream_new=$(gh api "repos/$FORK/compare/$head...${UPSTREAM%%/*}:$UPSTREAM_BRANCH" --jq .ahead_by)" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: steps.compare.outputs.upstream_new != '0'
+        with:
+          path: sync
+          persist-credentials: false
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: steps.compare.outputs.upstream_new != '0'
+        with:
+          repository: AnkiQuest/AnkiQuest-Agents
+          path: agents
+          token: ${{ secrets.FORK_SYNC_TOKEN }}
+          persist-credentials: false
 
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         if: steps.compare.outputs.upstream_new != '0'
         with:
           repository: ${{ matrix.fork }}
           ref: ${{ env.BRANCH }}
+          path: fork
           token: ${{ secrets.FORK_SYNC_TOKEN }}
           fetch-depth: 0
 
-      - name: Open the upstream pull request
+      - name: Build fork-sync
         if: steps.compare.outputs.upstream_new != '0'
-        env:
-          UPSTREAM_NEW: ${{ steps.compare.outputs.upstream_new }}
         run: |
-          owner="${UPSTREAM%%/*}"
-          git fetch --no-tags "https://github.com/$UPSTREAM.git" "$UPSTREAM_BRANCH:refs/remotes/upstream/$UPSTREAM_BRANCH"
+          cargo build -q --locked --release --manifest-path sync/tools/fork-sync/Cargo.toml
+          echo "$PWD/sync/tools/fork-sync/target/release" >> "$GITHUB_PATH"
 
-          # Try the merge here so a conflict is reported by file, not only on the pull request page
+      # The open pull request's branch gets the new merge on top; without one,
+      # the branch starts again from the fork's branch.
+      - name: Merge upstream into the sync branch
+        id: merge
+        if: steps.compare.outputs.upstream_new != '0'
+        working-directory: fork
+        run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          conflicts=""
-          if ! git merge --no-commit --no-ff "refs/remotes/upstream/$UPSTREAM_BRANCH"; then
-            conflicts=$(git diff --name-only --diff-filter=U)
-            [ -n "$conflicts" ] || conflicts="(the trial merge failed without listing files; see the log)"
-          fi
-          git merge --abort 2>/dev/null || true
-          if [ -n "$conflicts" ]; then
-            echo "::warning::$UPSTREAM conflicts with $FORK in: $(echo "$conflicts" | paste -sd ' ')"
-            { echo "### $UPSTREAM conflicts with $FORK $BRANCH"; echo; while IFS= read -r file; do echo "- $file"; done <<<"$conflicts"; } >> "$GITHUB_STEP_SUMMARY"
+          upstream_ref="refs/remotes/upstream/$UPSTREAM_BRANCH"
+          git fetch -q --no-tags "https://github.com/$UPSTREAM.git" "+$UPSTREAM_BRANCH:$upstream_ref"
+          if [ -n "$OPEN" ]; then
+            git fetch -q origin "+$SYNC:refs/remotes/origin/$SYNC"
+            git checkout -q -B "$SYNC" "refs/remotes/origin/$SYNC"
           else
-            echo "$FORK: $UPSTREAM_NEW upstream commits merge cleanly" >> "$GITHUB_STEP_SUMMARY"
+            git push -q origin --delete "$SYNC" 2>/dev/null || true
+            git checkout -q -B "$SYNC" "$BRANCH"
           fi
 
-          open=$(gh api "repos/$FORK/pulls?head=$owner:$UPSTREAM_BRANCH&base=$BRANCH&state=open" --jq '.[0].number // empty')
-          if [ -n "$open" ]; then
-            echo "Pull request #$open is open and now includes the new commits"
+          section="../agents/repos/${FORK#*/}.md"
+          if [ ! -f "$section" ]; then
+            echo "::error::$FORK has no section in AnkiQuest-Agents (repos/${FORK#*/}.md)"
+            exit 1
+          fi
+          fork-sync guidance "$upstream_ref" ../guidance
+          fork-sync agents ../agents/shared.md "$section" upstream "$UPSTREAM" ../guidance > ../agents.md
+          result=$(fork-sync merge "$upstream_ref" "$UPSTREAM" ../agents.md)
+          echo "result=$result" >> "$GITHUB_OUTPUT"
+          echo "upstream_ref=$upstream_ref" >> "$GITHUB_OUTPUT"
+          if [ "$result" = merged ]; then
+            git push -q origin "$SYNC"
+          fi
+
+      - name: Open or update the pull request
+        if: steps.merge.outputs.result == 'merged'
+        working-directory: fork
+        env:
+          UPSTREAM_REF: ${{ steps.merge.outputs.upstream_ref }}
+        run: |
+          title=$(fork-sync title "$UPSTREAM" "$(git rev-parse "$UPSTREAM_REF")")
+          body=$(fork-sync body "$UPSTREAM" "$UPSTREAM_BRANCH" "$BRANCH" "$UPSTREAM_REF")
+          conflicts=false
+          if grep -q '^## Conflicts$' <<<"$body"; then
+            conflicts=true
+            echo "::warning::$UPSTREAM conflicts with $FORK; see the pull request"
+          fi
+
+          if [ -n "$OPEN" ]; then
+            gh api -X PATCH "repos/$FORK/pulls/$OPEN" -f title="$title" -f body="$body" --silent
+            echo "$FORK: updated pull request #$OPEN ($title)" >> "$GITHUB_STEP_SUMMARY"
             exit 0
           fi
-          gh api "repos/$FORK/pulls" --jq .html_url \
-            -f base="$BRANCH" -f head="$owner:$UPSTREAM_BRANCH" \
-            -f title="Merge upstream $UPSTREAM" \
-            -f body="$UPSTREAM_NEW new commits from $UPSTREAM $UPSTREAM_BRANCH.
-
-          Merge with a merge commit, never squash or rebase, so $BRANCH keeps upstream's history.
-
-          If this conflicts, merge $UPSTREAM $UPSTREAM_BRANCH into a branch from $BRANCH, resolve there, and merge that branch instead; this pull request then shows as merged.
-
-          Opened by AnkiQuest/AnkiQuest-Sync."
+          # A conflicting merge starts as a draft until someone resolves it
+          url=$(gh api "repos/$FORK/pulls" --jq .html_url \
+            -f base="$BRANCH" -f head="$SYNC" -f title="$title" -f body="$body" -F draft="$conflicts")
+          echo "$FORK: opened $url" >> "$GITHUB_STEP_SUMMARY"
 
   watch:
     runs-on: ubuntu-latest
