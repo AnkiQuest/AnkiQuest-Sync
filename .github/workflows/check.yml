@@ -30,7 +30,7 @@ jobs:
       code: ${{ steps.changed.outputs.code }}
     steps:
       - id: changed
-        uses: AnkiQuest/AnkiQuest-Dev/.github/actions/code-changed@5ab685e7013b865630f96530ca8c654344738fa8
+        uses: AnkiQuest/AnkiQuest-Dev/.github/actions/code-changed@master
 
   check:
     needs: changes
