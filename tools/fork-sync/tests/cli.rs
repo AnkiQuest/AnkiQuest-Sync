@@ -8,6 +8,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
 const UPSTREAM: &str = "ankidroid/Anki-Android";
+const BRANCH: &str = "sync/ankidroid/Anki-Android";
 const SHARED: &str = "# Agent instructions\n\nShared rules.\n";
 const SECTION: &str = "## This repository\n\nFork rules.\n";
 
@@ -131,11 +132,10 @@ impl Scratch {
 
     /// The sync job's steps: branch, guidance, AGENTS.md, merge.
     fn sync(&self) -> String {
-        let branch = self.ok(&["branch", UPSTREAM]).trim().to_owned();
-        if self.git(&["branch", "--list", &branch]).is_empty() {
-            self.git(&["checkout", "-q", "-b", &branch, "master"]);
+        if self.git(&["branch", "--list", BRANCH]).is_empty() {
+            self.git(&["checkout", "-q", "-b", BRANCH, "master"]);
         } else {
-            self.git(&["checkout", "-q", &branch]);
+            self.git(&["checkout", "-q", BRANCH]);
         }
         let agents = self.root.join("agents.md");
         fs::write(&agents, self.agents_at("upstream")).unwrap();
@@ -143,7 +143,7 @@ impl Scratch {
     }
 
     fn body(&self) -> String {
-        self.ok(&["body", UPSTREAM, "main", "master", "upstream"])
+        self.ok(&["body", UPSTREAM, "main", "master", "upstream", BRANCH])
     }
 }
 

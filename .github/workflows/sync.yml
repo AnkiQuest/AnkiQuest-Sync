@@ -1,28 +1,35 @@
-# Keeps AnkiQuest's forks up to date with their upstream repositories.
+# Keeps AnkiQuest's forks up to date with their upstream repositories and
+# the other sources they carry.
 #
-# sync (forks.json): each fork's default branch carries upstream plus our
-# changes. The job merges upstream's branch into sync/<owner>/<repo> on the
-# fork and opens one pull request from it, "chore(sync): merge upstream
-# <owner>/<repo> at <commit>"; later runs add merges to the same branch and
-# update that pull request. A conflict never stops the merge: files are
-# committed with their markers and submodules keep our commit, and the
-# pull request lists what is left, so people fix it on the branch. In the
-# merge, AGENTS.md and CLAUDE.md are written from AnkiQuest-Agents and the
-# merged upstream's own CLAUDE.md and AGENTS.md (the "Upstream guidance"
-# section), so a change to upstream's guidance arrives in this pull request.
-# Merge it with a merge commit, outside the merge queue, so the fork keeps
-# upstream's history. tools/fork-sync holds the logic.
+# sync (forks.json, and watched.json entries in mode "merge"): each fork's
+# default branch carries upstream plus our changes. The job merges
+# upstream's branch into sync/<owner>/<repo> on the fork (a watched source's
+# into sync/<owner>/<repo>-<ref>) and opens one pull request from it,
+# "chore(sync): merge upstream <owner>/<repo> at <commit>"; later runs add
+# merges to the same branch and update that pull request. A conflict never
+# stops the merge: files are committed with their markers and submodules
+# keep our commit, and the pull request lists what is left, so people fix it
+# on the branch. In an upstream merge, AGENTS.md and CLAUDE.md are written
+# from AnkiQuest-Agents and the merged upstream's own CLAUDE.md and
+# AGENTS.md (the "Upstream guidance" section), so a change to upstream's
+# guidance arrives in this pull request; a watched source's merge keeps the
+# fork's AGENTS.md. Merge it with a merge commit, outside the merge queue,
+# so the fork keeps the source's history. Once merged, the source's commits
+# are in the fork's branch and the next run finds nothing new: there is no
+# `reviewed` to move. tools/fork-sync holds the merge, tools/source-watch
+# the matrix.
 #
-# watch (watched.json): other sources our branches carry changes from (FSRS-7, kuma3, a
-# new upstream backend version). Their changes need porting by hand, so each source with
-# commits (or a version) newer than its `reviewed` value gets one open issue in the fork
-# it feeds (in AnkiQuest-Sync, titled with the fork, where the fork has issues
-# disabled); the issue closes once `reviewed` is updated. They get no merge pull
-# request: our branches carry them as rewritten commits, not their history, so a
-# merge would bring every commit again. tools/source-watch holds the logic.
+# watch (watched.json): the other entries, by mode. "pin": a dependency
+# pinned by commit in the target's Cargo.toml; the job opens one pull
+# request moving the pin to the source's head, from sync/<owner>/<repo>-<ref>,
+# and the pin in the target's default branch is what is reviewed. "port":
+# changes that need a person (a different codebase, or a release step); one
+# open issue in the fork it feeds (in AnkiQuest-Sync, titled with the fork,
+# where the fork has issues disabled), closed once `reviewed` is updated.
+# tools/source-watch holds the logic.
 #
 # FORK_SYNC_TOKEN: fine-grained token for the AnkiQuest organisation with Contents,
-# Workflows, Pull requests and Issues read and write on every fork below, and Contents
+# Workflows, Pull requests and Issues read and write on every fork, and Contents
 # read on AnkiQuest-Agents. GITHUB_TOKEN can't be used: it cannot write to other
 # repositories, cannot push upstream commits that change workflows, and pull requests
 # it opens start no CI.
@@ -47,10 +54,11 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  # The matrix: forks.json, shared with agents.yml
+  # The matrix: forks.json (shared with agents.yml) and the merged sources
+  # of watched.json
   forks:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 10
     outputs:
       list: ${{ steps.read.outputs.list }}
     steps:
@@ -58,7 +66,9 @@ jobs:
         with:
           persist-credentials: false
       - id: read
-        run: echo "list=$(jq -c . forks.json)" >> "$GITHUB_OUTPUT"
+        run: |
+          cargo build -q --locked --release --manifest-path tools/source-watch/Cargo.toml
+          echo "list=$(tools/source-watch/target/release/source-watch matrix forks.json watched.json)" >> "$GITHUB_OUTPUT"
 
   sync:
     needs: forks
@@ -73,7 +83,8 @@ jobs:
       FORK: ${{ matrix.fork }}
       UPSTREAM: ${{ matrix.upstream }}
       UPSTREAM_BRANCH: ${{ matrix.upstream_branch }}
-      SYNC: sync/${{ matrix.upstream }}
+      SYNC: ${{ matrix.branch }}
+      GUIDANCE: ${{ matrix.guidance }}
     steps:
       - name: Require the sync token
         run: |
@@ -91,7 +102,10 @@ jobs:
           echo "OPEN=$open" >> "$GITHUB_ENV"
 
       # upstream_new: upstream commits the sync branch (or, without an open
-      # pull request, the fork's branch) lacks. Cheap, so quiet days clone nothing.
+      # pull request, the fork's branch) lacks. Cheap, so quiet days clone
+      # nothing. A source outside the fork's network can't be compared here
+      # ("unknown"); the merge then finds out, and does nothing when it has
+      # nothing new.
       - name: Compare with upstream
         id: compare
         run: |
@@ -99,7 +113,8 @@ jobs:
           if [ -n "$OPEN" ]; then
             head="$SYNC"
           fi
-          echo "upstream_new=$(gh api "repos/$FORK/compare/$head...${UPSTREAM%%/*}:$UPSTREAM_BRANCH" --jq .ahead_by)" >> "$GITHUB_OUTPUT"
+          ahead=$(gh api "repos/$FORK/compare/$head...${UPSTREAM%%/*}:$UPSTREAM_BRANCH" --jq .ahead_by) || ahead=unknown
+          echo "upstream_new=$ahead" >> "$GITHUB_OUTPUT"
 
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         if: steps.compare.outputs.upstream_new != '0'
@@ -152,13 +167,18 @@ jobs:
             git checkout -q -B "$SYNC" "$BRANCH"
           fi
 
-          section="../agents/repos/${FORK#*/}.md"
-          if [ ! -f "$section" ]; then
-            echo "::error::$FORK has no section in AnkiQuest-Agents (repos/${FORK#*/}.md)"
-            exit 1
+          # A watched source is not the fork's upstream: AGENTS.md stays as is
+          if [ "$GUIDANCE" = keep ]; then
+            git show "$BRANCH:AGENTS.md" > ../agents.md
+          else
+            section="../agents/repos/${FORK#*/}.md"
+            if [ ! -f "$section" ]; then
+              echo "::error::$FORK has no section in AnkiQuest-Agents (repos/${FORK#*/}.md)"
+              exit 1
+            fi
+            fork-sync guidance "$upstream_ref" ../guidance
+            fork-sync agents ../agents/shared.md "$section" upstream "$UPSTREAM" ../guidance > ../agents.md
           fi
-          fork-sync guidance "$upstream_ref" ../guidance
-          fork-sync agents ../agents/shared.md "$section" upstream "$UPSTREAM" ../guidance > ../agents.md
           result=$(fork-sync merge "$upstream_ref" "$UPSTREAM" ../agents.md)
           echo "result=$result" >> "$GITHUB_OUTPUT"
           echo "upstream_ref=$upstream_ref" >> "$GITHUB_OUTPUT"
@@ -173,7 +193,7 @@ jobs:
           UPSTREAM_REF: ${{ steps.merge.outputs.upstream_ref }}
         run: |
           title=$(fork-sync title "$UPSTREAM" "$(git rev-parse "$UPSTREAM_REF")")
-          body=$(fork-sync body "$UPSTREAM" "$UPSTREAM_BRANCH" "$BRANCH" "$UPSTREAM_REF")
+          body=$(fork-sync body "$UPSTREAM" "$UPSTREAM_BRANCH" "$BRANCH" "$UPSTREAM_REF" "$SYNC")
           conflicts=false
           if grep -q '^## Conflicts$' <<<"$body"; then
             conflicts=true
@@ -192,7 +212,8 @@ jobs:
 
   watch:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    # A pin bump clones the target and installs its Rust toolchain
+    timeout-minutes: 30
     permissions:
       contents: read
       issues: write # issues for targets with issues disabled go here
@@ -216,7 +237,11 @@ jobs:
           cargo build -q --locked --release --manifest-path tools/source-watch/Cargo.toml
           echo "$PWD/tools/source-watch/target/release" >> "$GITHUB_PATH"
 
-      # One issue per source; every source is checked even when one fails,
-      # and the step fails at the end naming the failed ones
-      - name: Report new changes in watched sources
-        run: source-watch watched.json "$GITHUB_REPOSITORY" "$GITHUB_STEP_SUMMARY"
+      # A pull request per pinned source and an issue per ported one; every
+      # source is checked even when one fails, and the step fails at the end
+      # naming the failed ones. Pins are moved in a clone the tool makes;
+      # git authenticates with GH_TOKEN through gh.
+      - name: Act on watched sources
+        run: |
+          gh auth setup-git
+          source-watch report watched.json "$GITHUB_REPOSITORY" "$GITHUB_STEP_SUMMARY" "$RUNNER_TEMP/watch"

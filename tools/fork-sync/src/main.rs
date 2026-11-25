@@ -5,7 +5,6 @@
 //! work with gh and git; this tool merges and decides. Commands marked (git)
 //! run in the current directory's checkout.
 //!
-//!   fork-sync branch <upstream>                  the fork's sync branch
 //!   fork-sync title <upstream> <commit>          the sync pull request title
 //!   fork-sync agents <shared> <section>          AGENTS.md of a repository without upstream
 //!   fork-sync agents <shared> <section> keep <current>
@@ -16,8 +15,9 @@
 //!   fork-sync guidance <rev> <dir>               (git) writes <rev>'s CLAUDE.md and AGENTS.md to <dir>
 //!   fork-sync merge <rev> <upstream> <agents>    (git) merges <rev> into HEAD with AGENTS.md from
 //!                                                file <agents>; prints "merged" or "up-to-date"
-//!   fork-sync body <upstream> <upstream-branch> <base> <rev>
-//!                                                (git) the sync pull request body for HEAD
+//!   fork-sync body <upstream> <upstream-branch> <base> <rev> <branch>
+//!                                                (git) the body of the pull request from
+//!                                                <branch> (HEAD)
 
 mod agents;
 mod git;
@@ -34,7 +34,7 @@ use git::Repo;
 use guidance::Guidance;
 use merge::Outcome;
 
-const USAGE: &str = "usage: fork-sync branch <upstream> | title <upstream> <commit> | agents <shared> <section> [keep <current> | upstream <upstream> <dir>] | guidance <rev> <dir> | merge <rev> <upstream> <agents> | body <upstream> <upstream-branch> <base> <rev>";
+const USAGE: &str = "usage: fork-sync title <upstream> <commit> | agents <shared> <section> [keep <current> | upstream <upstream> <dir>] | guidance <rev> <dir> | merge <rev> <upstream> <agents> | body <upstream> <upstream-branch> <base> <rev> <branch>";
 
 fn main() -> ExitCode {
     let args: Vec<String> = env::args().skip(1).collect();
@@ -55,7 +55,6 @@ fn main() -> ExitCode {
 fn run(args: &[&str]) -> Result<String, String> {
     let here = Repo::new(Path::new("."));
     match args {
-        ["branch", upstream] => Ok(format!("{}\n", pr::branch(upstream))),
         ["title", upstream, commit] => Ok(format!("{}\n", pr::title(upstream, commit))),
         ["agents", shared, section] => Ok(agents::compose(&read(shared)?, &read(section)?, "")),
         ["agents", shared, section, "keep", current] => {
@@ -85,14 +84,13 @@ fn run(args: &[&str]) -> Result<String, String> {
                 Outcome::Merged(_) => Ok("merged\n".to_owned()),
             }
         }
-        ["body", upstream, upstream_branch, base, rev] => {
+        ["body", upstream, upstream_branch, base, rev, branch] => {
             let status = status::read(&here, base, rev)?;
-            let branch = pr::branch(upstream);
             let names = pr::Names {
                 upstream,
                 upstream_branch,
                 base,
-                branch: &branch,
+                branch,
             };
             Ok(pr::body(&names, &status))
         }

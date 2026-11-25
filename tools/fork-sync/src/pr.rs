@@ -1,23 +1,24 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-//! The sync branch, and the title and body of its pull request.
+//! The title and body of a sync pull request.
 
 use crate::status::{Guidance, Status};
 
-/// Characters of a commit shown in titles.
+/// Characters of a commit shown in titles and bodies.
 const SHORT: usize = 10;
+/// The fewest characters a title shortens a commit to.
+const SHORTEST: usize = 7;
+/// The longest title the commit conventions allow.
+const TITLE_MAX: usize = 72;
 
-/// The fork's branch that collects upstream merges: sync/<owner>/<repo>.
-pub fn branch(upstream: &str) -> String {
-    format!("sync/{upstream}")
-}
-
-/// The pull request title, also the merge commit's subject.
+/// The pull request title, also the merge commit's subject. A long source
+/// name shortens the commit, down to 7 characters, to keep it within 72.
 pub fn title(upstream: &str, commit: &str) -> String {
-    format!(
-        "chore(sync): merge upstream {upstream} at {}",
-        short(commit)
-    )
+    let prefix = format!("chore(sync): merge upstream {upstream} at ");
+    let room = TITLE_MAX
+        .saturating_sub(prefix.len())
+        .clamp(SHORTEST, SHORT);
+    format!("{prefix}{}", &commit[..commit.len().min(room)])
 }
 
 /// "1 new commit", "12 new commits".
@@ -37,6 +38,7 @@ pub struct Names<'a> {
     pub upstream: &'a str,
     pub upstream_branch: &'a str,
     pub base: &'a str,
+    /// The sync branch the pull request is opened from.
     pub branch: &'a str,
 }
 
@@ -117,14 +119,6 @@ mod tests {
     }
 
     #[test]
-    fn branch_names_the_upstream() {
-        assert_eq!(
-            branch("ankidroid/Anki-Android"),
-            "sync/ankidroid/Anki-Android"
-        );
-    }
-
-    #[test]
     fn title_is_conventional() {
         let t = title("ankidroid/Anki-Android", SHA);
         assert_eq!(
@@ -134,6 +128,16 @@ mod tests {
 
         // The longest upstream still fits the 72-character limit
         assert!(title("ankidroid/Anki-Android-Backend", SHA).len() <= 72);
+    }
+
+    #[test]
+    fn long_source_shortens_the_commit() {
+        let t = title("Pedrubik2000/kuma3-anki-backend", SHA);
+        assert_eq!(
+            t,
+            "chore(sync): merge upstream Pedrubik2000/kuma3-anki-backend at 012345678"
+        );
+        assert_eq!(t.len(), 72);
     }
 
     #[test]
