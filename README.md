@@ -44,14 +44,11 @@ with an "Upstream guidance" section: upstream's own `CLAUDE.md` and
 only point at another, such as `@AGENTS.md` or a symlink, and duplicates are
 left out). The `sync` job writes that section; this job keeps it as the fork's
 branch has it, so the two never change the same text. `CLAUDE.md` is
-`@AGENTS.md` in every repository. Where either differs, it pushes branch
-`agents-sync` and opens or updates one pull request,
-`chore(agents): update AGENTS.md from AnkiQuest-Agents`, and turns on
-auto-merge (`tools/auto-merge.sh`): the pull request squash-merges, or joins
-the merge queue where the base branch has one, once its checks pass. The
-rules were reviewed in AnkiQuest-Agents, so nobody merges it by hand; the
-repository must allow auto-merge, and its rules must not wait on a review
-(see "Token"). It runs daily, on
+`@AGENTS.md` in every repository. Where either differs, it commits both,
+`chore(agents): update AGENTS.md from AnkiQuest-Agents`, and pushes the commit
+straight to the default branch as a fast-forward: the rules were reviewed in
+AnkiQuest-Agents, so nobody reviews or merges it again, and the token's
+account bypasses the branch's ruleset. See "Landing" below. It runs daily, on
 demand, and on a `repository_dispatch` of type `agents-changed`, which
 AnkiQuest-Agents sends when its default branch changes. The repositories are
 the `TARGETS` list in that workflow; `AGENTS.md` lives on each one's default
@@ -77,12 +74,10 @@ first release its file may have `"tag": null`.
 The job downloads the release's `ankiquest-art.json` and `SHA256SUMS`, checks
 the pin file against them, and compares it byte for byte with each
 repository's copy on its default branch (a missing file differs). Where it
-differs, it pushes branch `art-release` with only that file replaced and opens
-or updates one pull request, `chore(art): use AnkiQuest-Art <tag>`, listing the old and
-new tag, the Art compare link and the asset hashes that changed. With that
-pull request open, it adds to the branch instead of starting it again. Like
-the `agents` job, it turns on auto-merge: the art was reviewed in
-AnkiQuest-Art.
+differs, it commits only that file, `chore(art): use AnkiQuest-Art <tag>`, and
+pushes it straight to the default branch, as the `agents` job does: the art was
+reviewed in AnkiQuest-Art. A fallback pull request (see "Landing") lists the
+old and new tag, the Art compare link and the asset hashes that changed.
 
 It runs on a `repository_dispatch` of type `art-released` with client payload
 `{"tag": "art-<N>"}`, which AnkiQuest-Art's release workflow sends after
@@ -112,6 +107,26 @@ checked even when one fails; the job then fails, naming the failed sources.
 The logic is `tools/source-watch` (also the `sync` job's matrix, `source-watch
 matrix forks.json watched.json`), a Rust tool tested by the `check` workflow.
 
+## Landing
+
+`source-watch land` puts the `agents` and `art` jobs' files on each
+repository's default branch:
+
+1. It clones the default branch; if it already has the files, nothing
+   happens (an open fallback pull request is closed).
+2. It commits them, as `github-actions[bot]` like the jobs' other commits,
+   and pushes the commit to the default branch as a plain fast-forward.
+3. If the push is refused (the token's account isn't a bypass actor yet, or
+   the branch moved), it clones the latest branch and tries once more. It
+   skips that retry if the files themselves changed meanwhile.
+4. Refused again, it pushes the commit to the fallback branch (`agents-sync`,
+   `art-release`) and opens or updates one pull request from it with
+   auto-merge on: it squash-merges, or joins the merge queue, once the
+   branch's rules are met. The job summary says the push was refused and why.
+
+Nothing is force-pushed, and the default branch is never deleted or rewritten.
+Once a push lands, an open fallback pull request is closed.
+
 ## Mirrors
 
 Some branches of ours mirror a source branch: AnkiQuest-Android's
@@ -140,12 +155,14 @@ issues with the job's `GITHUB_TOKEN`.
 - **Mirrors**: Contents and Workflows write on each target in `mirrors.json`
   (the mirrored upstream commits may change workflows); the six forks
   already have both.
-- **Auto-merge**: Pull requests write on every repository in `TARGETS` and
-  `art-consumers.json`, which they already have. Each of those repositories
-  must allow auto-merge, and squash merging where it has no merge queue.
-  Auto-merge waits for every rule of the base branch, review included, and a
-  ruleset bypass does not apply to it: where a ruleset requires an approving
-  review, the `agents-sync` and `art-release` pull requests still wait for one.
+- **Landing**: Contents write on every repository in `TARGETS` and
+  `art-consumers.json` (already granted), and the token's account must be a
+  bypass actor, with mode "always" so direct pushes pass, of each of those
+  repositories' default-branch ruleset. Repositories without a ruleset need
+  nothing. Without the bypass the push is refused and the fallback pull
+  request is used: that needs Pull requests write (already granted) and
+  auto-merge allowed in the repository, and still waits for any review the
+  ruleset requires.
 
 ## Licence
 

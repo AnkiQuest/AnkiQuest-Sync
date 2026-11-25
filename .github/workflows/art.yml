@@ -1,10 +1,13 @@
 # Keeps every consumer of AnkiQuest-Art on its latest release. Each consumer
 # in art-consumers.json carries the release's pin file, ankiquest-art.json, at
-# its root. Where it differs from the release's, the job pushes branch
-# art-release there with only that file replaced, opens (or updates) one
-# pull request, "chore(art): use AnkiQuest-Art <tag>", and turns on
-# auto-merge, so it merges once its checks pass (tools/auto-merge.sh). The
-# art was reviewed in AnkiQuest-Art.
+# its root. Where it differs from the release's, the job pushes
+# a commit "chore(art): use AnkiQuest-Art <tag>" replacing only that file
+# straight to the default branch as a fast-forward: the art was reviewed in
+# AnkiQuest-Art, and the token's account bypasses the branch's ruleset. A
+# refused push is tried once more on the latest branch; refused again, the
+# commit goes to branch art-release and one pull request with auto-merge on,
+# and the job summary says so. Nothing is force-pushed. `source-watch land`
+# does this.
 #
 # Runs on the `art-released` repository_dispatch that AnkiQuest-Art's release
 # workflow sends (client payload {"tag": "art-<N>"}), daily as a fallback, and
@@ -14,8 +17,9 @@
 # against the release's SHA256SUMS, comparing and the pull request text.
 #
 # FORK_SYNC_TOKEN: see sync.yml; it also needs Contents and Pull requests read
-# and write on every repository in art-consumers.json (Pull requests write
-# turns on auto-merge).
+# and write on every repository in art-consumers.json (Pull requests write for
+# the fallback and its auto-merge). Its account is a bypass actor of each
+# consumer's default-branch ruleset.
 name: Pin AnkiQuest-Art releases
 
 on:
@@ -61,10 +65,12 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Build art-pin
+      - name: Build art-pin and source-watch
         run: |
           cargo build -q --locked --release --manifest-path tools/art-pin/Cargo.toml
+          cargo build -q --locked --release --manifest-path tools/source-watch/Cargo.toml
           echo "$PWD/tools/art-pin/target/release" >> "$GITHUB_PATH"
+          echo "$PWD/tools/source-watch/target/release" >> "$GITHUB_PATH"
 
       # tag: the requested release; otherwise the latest, at least the dispatched one
       - name: Find the release
@@ -92,15 +98,16 @@ jobs:
             --pattern ankiquest-art.json --pattern SHA256SUMS
           art-pin verify release/ankiquest-art.json release/SHA256SUMS "$TAG"
 
-      - name: Open the pull requests
+      # source-watch land pushes to the default branch, or falls back to the
+      # art-release pull request with auto-merge; git authenticates through gh
+      - name: Land the pin
         if: steps.release.outputs.tag != ''
         env:
           TAG: ${{ steps.release.outputs.tag }}
         run: |
-          git config --global user.name "github-actions[bot]"
-          git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
           gh auth setup-git
           new="$PWD/release/ankiquest-art.json"
+          title=$(art-pin title "$new")
           failed=0
 
           for repo in $(jq -r '.[]' art-consumers.json); do
@@ -111,42 +118,12 @@ jobs:
             git clone -q --depth 1 --filter=blob:none --sparse -b "$branch" "https://github.com/$repo.git" "$dir"
             git -C "$dir" sparse-checkout set --no-cone /ankiquest-art.json
             old="$dir/ankiquest-art.json"
+            { art-pin body "$new" "$old"; echo; echo "AnkiQuest-Sync pushes pin updates to $branch directly. It opened this pull request because the push was refused; it merges by itself once its checks pass."; } > body.md
 
-            if [ "$(art-pin status "$new" "$old")" = current ]; then
-              echo "$repo: on $TAG" >> "$GITHUB_STEP_SUMMARY"; continue
-            fi
-            title=$(art-pin title "$new")
-            body=$(art-pin body "$new" "$old")
-
-            # Add to the open pull request, or start art-release afresh from the branch
-            open=$(gh api "repos/$repo/pulls?head=AnkiQuest:art-release&base=$branch&state=open" --jq '.[0].number // empty')
-            if [ -n "$open" ]; then
-              git -C "$dir" fetch -q --depth 1 origin art-release
-              git -C "$dir" checkout -q -B art-release FETCH_HEAD
-            else
-              git -C "$dir" push -q origin --delete art-release 2>/dev/null || true
-              git -C "$dir" checkout -q -b art-release
-            fi
-            cp "$new" "$old"
-            git -C "$dir" add ankiquest-art.json
-            if ! git -C "$dir" diff --cached --quiet; then
-              git -C "$dir" commit -q -m "$title" -m "The pin file of AnkiQuest/AnkiQuest-Art release $TAG."
-              if ! git -C "$dir" push -q origin art-release; then
-                echo "::error::$repo: push failed"; failed=1; continue
-              fi
-            fi
-
-            # The title and body follow the newest release
-            if [ -n "$open" ]; then
-              gh api -X PATCH "repos/$repo/pulls/$open" -f title="$title" -f body="$body" --silent
-              echo "$repo: updated pull request #$open to $TAG" >> "$GITHUB_STEP_SUMMARY"
-              tools/auto-merge.sh "$repo" "$open" || failed=1
-              continue
-            fi
-            pr=$(gh api "repos/$repo/pulls" --jq '.number,.html_url' \
-              -f base="$branch" -f head=art-release -f title="$title" -f body="$body")
-            echo "$repo: opened $(sed -n 2p <<<"$pr")" >> "$GITHUB_STEP_SUMMARY"
-            tools/auto-merge.sh "$repo" "$(sed -n 1p <<<"$pr")" || failed=1
+            source-watch land "$repo" art-release "$title" \
+              "The pin file of AnkiQuest/AnkiQuest-Art release $TAG." \
+              body.md "$GITHUB_STEP_SUMMARY" "$RUNNER_TEMP/land" \
+              "ankiquest-art.json=$new" || failed=1
           done
 
           exit $failed

@@ -6,6 +6,7 @@
 //!   source-watch matrix <forks.json> <watched.json>
 //!   source-watch report <watched.json> <fallback> <summary> <workdir>
 //!   source-watch mirror <mirrors.json> <base> <summary> <workdir>
+//!   source-watch land <repo> <fallback> <title> <message> <body> <summary> <workdir> <path>=<file>...
 //!
 //! matrix prints the sync job's matrix as JSON: each fork's upstream and
 //! each watched source in mode "merge".
@@ -24,8 +25,15 @@
 //! <workdir>; repositories are <base>/<owner>/<repo>.git (https://github.com
 //! in the job). Like report, it appends to <summary>, checks every entry and
 //! fails at the end naming the failed ones.
+//!
+//! land puts each <file> at <path> on <repo>'s default branch (see land.rs):
+//! one commit, <title> and <message>, pushed as a fast-forward; if refused,
+//! the pull request from <fallback>, titled <title> with the text of file
+//! <body>, with auto-merge on. It clones into <workdir> and appends one line
+//! to <summary>. The agents and art jobs run it for each repository.
 
 mod github;
+mod land;
 mod matrix;
 mod mirror;
 mod pin;
@@ -42,7 +50,7 @@ use std::process::ExitCode;
 use github::Gh;
 use workspace::Checkout;
 
-const USAGE: &str = "usage: source-watch matrix <forks.json> <watched.json> | report <watched.json> <fallback> <summary> <workdir> | mirror <mirrors.json> <base> <summary> <workdir>";
+const USAGE: &str = "usage: source-watch matrix <forks.json> <watched.json> | report <watched.json> <fallback> <summary> <workdir> | mirror <mirrors.json> <base> <summary> <workdir> | land <repo> <fallback> <title> <message> <body> <summary> <workdir> <path>=<file>...";
 
 fn main() -> ExitCode {
     let args: Vec<String> = env::args().skip(1).collect();
@@ -53,6 +61,20 @@ fn main() -> ExitCode {
             report(watched, fallback, summary, workdir)
         }
         ["mirror", mirrors, base, summary, workdir] => mirror(mirrors, base, summary, workdir),
+        [
+            "land",
+            repo,
+            fallback,
+            title,
+            message,
+            body,
+            summary,
+            workdir,
+            files @ ..,
+        ] if !files.is_empty() => {
+            let names = [*repo, *fallback, *title, *message, *body];
+            change(names, files).and_then(|c| land(&c, summary, workdir))
+        }
         _ => Err(USAGE.to_owned()),
     };
     match result {
@@ -119,6 +141,42 @@ fn mirror(mirrors: &str, base: &str, summary_path: &str, workdir: &str) -> Resul
     append(summary_path, &lines)?;
     let failed: Vec<&str> = failed.iter().map(String::as_str).collect();
     failures(&failed, mirrors.len(), "mirrors")
+}
+
+/// The change `land` makes: repository, fallback branch, title, message,
+/// body file and `<path>=<file>` arguments.
+fn change(names: [&str; 5], files: &[&str]) -> Result<land::Change, String> {
+    let [repo, fallback, title, message, body] = names;
+    Ok(land::Change {
+        repo: repo.to_owned(),
+        fallback: fallback.to_owned(),
+        title: title.to_owned(),
+        message: message.to_owned(),
+        body: read(body)?,
+        files: files.iter().map(|f| file(f)).collect::<Result<_, _>>()?,
+    })
+}
+
+/// A `<path>=<file>` argument: the repository path and the file's text.
+fn file(arg: &str) -> Result<(String, String), String> {
+    let (path, local) = arg
+        .split_once('=')
+        .ok_or_else(|| format!("{arg}: expected <path>=<file>"))?;
+    Ok((path.to_owned(), read(local)?))
+}
+
+fn land(change: &land::Change, summary: &str, workdir: &str) -> Result<(), String> {
+    let paths: Vec<&str> = change.files.iter().map(|(p, _)| p.as_str()).collect();
+    let work = Checkout::sparse(PathBuf::from(workdir), &paths);
+    let result = land::land(&Gh::new(None), &work, change);
+    let line = match &result {
+        Ok(outcome) => land::line(&change.repo, outcome),
+        Err(_) => format!("{}: failed", change.repo),
+    };
+    append(summary, &[line])?;
+    result
+        .map(|_| ())
+        .map_err(|e| format!("{}: {e}", change.repo))
 }
 
 /// Appends lines to the job summary file.
