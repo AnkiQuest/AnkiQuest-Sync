@@ -119,7 +119,7 @@ jobs:
             exit 0
           fi
 
-          title="Backend $VERSION"
+          title="chore(deps): use AnkiQuest-Android-Backend $VERSION"
           body="Raises the backend the app builds against to $VERSION, the version AnkiQuest-Android-Backend published to Maven Central (org.ankiquest:ankiquest-backend-android, ankiquest-backend-core and ankiquest-android-backend-testing)."
           git -C app commit -q -m "$title" -m "AnkiQuest-Android-Backend published $VERSION; the app builds against it."
           if ! git -C app push -q origin backend-bump; then
