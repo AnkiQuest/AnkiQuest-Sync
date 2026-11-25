@@ -1,4 +1,4 @@
-# Lints the workflows, checks the flake and tests the tools on pull
+# Lints and audits the workflows, checks the flake and tests the tools on pull
 # requests and on master, with AnkiQuest-Dev's shared Nix check.
 name: Check
 
@@ -25,7 +25,7 @@ jobs:
     timeout-minutes: 5
     permissions:
       contents: read
-      pull-requests: read
+      pull-requests: read # code-changed lists the pull request's files
     outputs:
       code: ${{ steps.changed.outputs.code }}
     steps:
@@ -40,6 +40,7 @@ jobs:
       # The flake's checks include the formatting.
       format: ""
       actionlint: true
+      zizmor: true
       run: |
         jq empty watched.json art-consumers.json forks.json
         for tool in tools/art-pin tools/fork-sync; do

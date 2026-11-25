@@ -1,0 +1,20 @@
+version: 2
+updates:
+  # The commit SHAs third-party actions are pinned to. AnkiQuest's own
+  # workflows and actions stay at master.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    # A release gets a week before it is proposed, so a bad or compromised
+    # one has time to be pulled.
+    cooldown:
+      default-days: 7
+    ignore:
+      - dependency-name: AnkiQuest/*
+    groups:
+      github-actions:
+        patterns:
+          - "*"
+    commit-message:
+      prefix: ci
