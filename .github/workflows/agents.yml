@@ -1,9 +1,12 @@
 # Writes each AnkiQuest repository's AGENTS.md from AnkiQuest/AnkiQuest-Agents:
-# shared.md, a blank line, repos/<repository>.md. A fork's AGENTS.md ends with
-# an "Upstream guidance" section, upstream's own CLAUDE.md and AGENTS.md; the
-# sync job (sync.yml) writes it when it merges upstream, and this job keeps it
-# as the repository's branch has it, so the two jobs never change the same
-# text. CLAUDE.md is "@AGENTS.md" in every repository. Where either file
+# shared.md, a blank line, repos/<repository>.md. A fork's AGENTS.md (a
+# repository in forks.json) ends with an "Upstream guidance" section:
+# upstream.md, then upstream's own CLAUDE.md and AGENTS.md at the newest
+# upstream commit the fork's branch has merged. The sync job (sync.yml)
+# writes the same text when it merges that commit, so this job changes the
+# section only when upstream.md changes or the branch's copy is out of date,
+# and a new upstream text arrives with the sync pull request that merges
+# it. CLAUDE.md is "@AGENTS.md" in every repository. Where either file
 # differs from the repository's branch, the job commits both and pushes the
 # commit to that branch as a fast-forward: the rules were reviewed in
 # AnkiQuest-Agents, and the token's account bypasses the branch's ruleset.
@@ -13,11 +16,12 @@
 # does this.
 #
 # TARGETS: the repositories; AGENTS.md lives on each one's default branch.
-# tools/fork-sync writes the file (`fork-sync agents ... keep`).
+# tools/fork-sync writes the file (`fork-sync agents ... merged`).
 #
 # FORK_SYNC_TOKEN: see sync.yml; it also needs Contents and Pull requests read and
 # write on every repository in TARGETS (Pull requests write for the fallback
-# and its auto-merge), and Contents read on AnkiQuest-Agents. Its account is
+# and its auto-merge), and Contents read on AnkiQuest-Agents. fork-sync reads
+# each fork's merge base and guidance files with it. Its account is
 # a bypass actor of each TARGETS repository's default-branch ruleset.
 name: Distribute AGENTS.md
 
@@ -103,13 +107,10 @@ jobs:
               echo "::error::$repo has no $section"; failed=1; continue
             fi
 
-            # Only AGENTS.md is needed: a shallow, sparse, blob-less clone
-            dir="work/${repo#*/}"
-            git clone -q --depth 1 --filter=blob:none --sparse -b "$branch" "https://github.com/$repo.git" "$dir"
-            git -C "$dir" sparse-checkout set --no-cone /AGENTS.md
-
-            # The fork's upstream guidance stays as the branch has it; the sync job updates it
-            fork-sync agents source/shared.md "$section" keep "$dir/AGENTS.md" > agents.md
+            # A fork gets upstream's guidance at the commit its branch last merged
+            if ! fork-sync agents source/shared.md "$section" merged source/upstream.md sync/forks.json "$repo" "$branch" > agents.md; then
+              echo "::error::$repo: fork-sync agents failed"; failed=1; continue
+            fi
             echo "@AGENTS.md" > claude.md
             echo "Generated from AnkiQuest/AnkiQuest-Agents $source_sha. Change the rules there, not here: shared.md for all repositories, repos/${repo#*/}.md for this one.
 

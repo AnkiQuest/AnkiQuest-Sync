@@ -1,17 +1,24 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 //! fork-sync: the logic of AnkiQuest-Sync's sync and agents jobs
-//! (.github/workflows/sync.yml, agents.yml). The workflows do the network
-//! work with gh and git; this tool merges and decides. Commands marked (git)
-//! run in the current directory's checkout.
+//! (.github/workflows/sync.yml, agents.yml). The workflows clone, fetch and
+//! push with gh and git; this tool merges and decides. Commands marked (git)
+//! run in the current directory's checkout; those marked (gh) read GitHub
+//! with `gh api` and GH_TOKEN.
+//!
+//! <shared>, <section> and <intro> are AnkiQuest-Agents' shared.md,
+//! repos/<repository>.md and upstream.md (the introduction of the
+//! "Upstream guidance" section).
 //!
 //!   fork-sync title <upstream> <commit>          the sync pull request title
 //!   fork-sync agents <shared> <section>          AGENTS.md of a repository without upstream
-//!   fork-sync agents <shared> <section> keep <current>
-//!                                                AGENTS.md keeping file <current>'s upstream guidance
-//!   fork-sync agents <shared> <section> upstream <upstream> <dir>
+//!   fork-sync agents <shared> <section> upstream <intro> <upstream> <dir>
 //!                                                AGENTS.md with upstream's guidance from <dir>,
 //!                                                which holds its CLAUDE.md and AGENTS.md
+//!   fork-sync agents <shared> <section> merged <intro> <forks.json> <repo> <branch>
+//!                                                (gh) AGENTS.md of <repo>'s <branch>: for a fork
+//!                                                in <forks.json>, with upstream's guidance at the
+//!                                                newest upstream commit the branch has merged
 //!   fork-sync guidance <rev> <dir>               (git) writes <rev>'s CLAUDE.md and AGENTS.md to <dir>
 //!   fork-sync merge <rev> <upstream> <agents>    (git) merges <rev> into HEAD with AGENTS.md from
 //!                                                file <agents>; prints "merged" or "up-to-date"
@@ -20,7 +27,9 @@
 //!                                                <branch> (HEAD)
 
 mod agents;
+mod forks;
 mod git;
+mod github;
 mod guidance;
 mod merge;
 mod pr;
@@ -31,10 +40,11 @@ use std::process::ExitCode;
 use std::{env, fs};
 
 use git::Repo;
+use github::Gh;
 use guidance::Guidance;
 use merge::Outcome;
 
-const USAGE: &str = "usage: fork-sync title <upstream> <commit> | agents <shared> <section> [keep <current> | upstream <upstream> <dir>] | guidance <rev> <dir> | merge <rev> <upstream> <agents> | body <upstream> <upstream-branch> <base> <rev> <branch>";
+const USAGE: &str = "usage: fork-sync title <upstream> <commit> | agents <shared> <section> [upstream <intro> <upstream> <dir> | merged <intro> <forks.json> <repo> <branch>] | guidance <rev> <dir> | merge <rev> <upstream> <agents> | body <upstream> <upstream-branch> <base> <rev> <branch>";
 
 fn main() -> ExitCode {
     let args: Vec<String> = env::args().skip(1).collect();
@@ -57,22 +67,31 @@ fn run(args: &[&str]) -> Result<String, String> {
     match args {
         ["title", upstream, commit] => Ok(format!("{}\n", pr::title(upstream, commit))),
         ["agents", shared, section] => Ok(agents::compose(&read(shared)?, &read(section)?, "")),
-        ["agents", shared, section, "keep", current] => {
-            // A repository without AGENTS.md yet keeps nothing
-            let current = fs::read_to_string(current).unwrap_or_default();
-            Ok(agents::compose(
-                &read(shared)?,
-                &read(section)?,
-                guidance::of(&current),
-            ))
-        }
-        ["agents", shared, section, "upstream", upstream, dir] => {
+        ["agents", shared, section, "upstream", intro, upstream, dir] => {
             let g = Guidance::read(upstream, Path::new(dir))?;
             Ok(agents::compose(
                 &read(shared)?,
                 &read(section)?,
-                &g.section(),
+                &g.section(&read(intro)?),
             ))
+        }
+        [
+            "agents",
+            shared,
+            section,
+            "merged",
+            intro,
+            forks,
+            repo,
+            branch,
+        ] => {
+            let forks = forks::parse(&read(forks)?)?;
+            let section = read(section)?;
+            let guidance = match forks::merged(&Gh, &forks, repo, branch)? {
+                Some(g) => g.section(&read(intro)?),
+                None => String::new(),
+            };
+            Ok(agents::compose(&read(shared)?, &section, &guidance))
         }
         ["guidance", rev, dir] => {
             write_guidance(&here, rev, Path::new(dir))?;

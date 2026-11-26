@@ -11,9 +11,10 @@
 # keep our commit, and the pull request lists what is left, so people fix it
 # on the branch. In an upstream merge, AGENTS.md and CLAUDE.md are written
 # from AnkiQuest-Agents and the merged upstream's own CLAUDE.md and
-# AGENTS.md (the "Upstream guidance" section), so a change to upstream's
-# guidance arrives in this pull request; a watched source's merge keeps the
-# fork's AGENTS.md. Merge it with a merge commit, outside the merge queue,
+# AGENTS.md (the "Upstream guidance" section, introduced by upstream.md), so
+# a change to upstream's guidance arrives in this pull request; the agents
+# job writes the same section once it is merged. A watched source's merge
+# keeps the fork's AGENTS.md. Merge it with a merge commit, outside the merge queue,
 # so the fork keeps the source's history. Once merged, the source's commits
 # are in the fork's branch and the next run finds nothing new: there is no
 # `reviewed` to move. tools/fork-sync holds the merge, tools/source-watch
@@ -185,7 +186,7 @@ jobs:
               exit 1
             fi
             fork-sync guidance "$upstream_ref" ../guidance
-            fork-sync agents ../agents/shared.md "$section" upstream "$UPSTREAM" ../guidance > ../agents.md
+            fork-sync agents ../agents/shared.md "$section" upstream ../agents/upstream.md "$UPSTREAM" ../guidance > ../agents.md
           fi
           result=$(fork-sync merge "$upstream_ref" "$UPSTREAM" ../agents.md)
           echo "result=$result" >> "$GITHUB_OUTPUT"

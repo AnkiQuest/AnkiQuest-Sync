@@ -11,6 +11,7 @@ const UPSTREAM: &str = "ankidroid/Anki-Android";
 const BRANCH: &str = "sync/ankidroid/Anki-Android";
 const SHARED: &str = "# Agent instructions\n\nShared rules.\n";
 const SECTION: &str = "## This repository\n\nFork rules.\n";
+const INTRO: &str = "[{upstream}](https://github.com/{upstream})'s own instructions.\n";
 
 /// A scratch directory with a fork checkout (`fork/`) whose remote-tracking
 /// ref `upstream/main` stands for upstream.
@@ -25,6 +26,7 @@ impl Scratch {
         fs::create_dir_all(root.join("fork")).unwrap();
         fs::write(root.join("shared.md"), SHARED).unwrap();
         fs::write(root.join("section.md"), SECTION).unwrap();
+        fs::write(root.join("upstream.md"), INTRO).unwrap();
         let s = Scratch { root };
         s.git(&["init", "-q", "-b", "main"]);
 
@@ -117,13 +119,19 @@ impl Scratch {
     fn compose(&self, dir: Option<&Path>) -> String {
         let shared = self.root.join("shared.md");
         let section = self.root.join("section.md");
+        let intro = self.root.join("upstream.md");
         let mut args = vec![
             "agents",
             shared.to_str().unwrap(),
             section.to_str().unwrap(),
         ];
         if let Some(dir) = dir {
-            args.extend(["upstream", UPSTREAM, dir.to_str().unwrap()]);
+            args.extend([
+                "upstream",
+                intro.to_str().unwrap(),
+                UPSTREAM,
+                dir.to_str().unwrap(),
+            ]);
         }
         let args: Vec<String> = args.iter().map(|s| s.to_string()).collect();
         let args: Vec<&str> = args.iter().map(String::as_str).collect();
@@ -329,30 +337,35 @@ fn agents_without_upstream_matches_cat() {
 }
 
 #[test]
-fn agents_keeps_the_section() {
-    let s = Scratch::new("keep");
-    let current = s.fork().join("AGENTS.md");
-    let shared = s.root.join("shared.md");
-    let section = s.root.join("section.md");
-    let kept = s.ok(&[
+fn merged_skips_repositories_without_upstream() {
+    // A repository forks.json doesn't list gets no guidance and no GitHub call
+    let s = Scratch::new("merged");
+    let forks = s.root.join("forks.json");
+    fs::write(
+        &forks,
+        r#"[{ "fork": "AnkiQuest/AnkiQuest-Android", "upstream": "ankidroid/Anki-Android", "upstream_branch": "main" }]"#,
+    )
+    .unwrap();
+    let path = |name: &str| s.root.join(name).to_str().unwrap().to_owned();
+    let out = s.ok(&[
         "agents",
-        shared.to_str().unwrap(),
-        section.to_str().unwrap(),
-        "keep",
-        current.to_str().unwrap(),
+        &path("shared.md"),
+        &path("section.md"),
+        "merged",
+        &path("upstream.md"),
+        &path("forks.json"),
+        "AnkiQuest/AnkiQuest-Server",
+        "master",
     ]);
-    assert_eq!(kept, s.read("AGENTS.md"));
+    assert_eq!(out, format!("{SHARED}\n{SECTION}"));
+}
 
-    // A repository without an AGENTS.md gets the plain one
-    let missing = s.root.join("missing.md");
-    let plain = s.ok(&[
-        "agents",
-        shared.to_str().unwrap(),
-        section.to_str().unwrap(),
-        "keep",
-        missing.to_str().unwrap(),
-    ]);
-    assert_eq!(plain, format!("{SHARED}\n{SECTION}"));
+#[test]
+fn guidance_names_the_upstream() {
+    let s = Scratch::new("intro");
+    assert!(s.read("AGENTS.md").contains(
+        "## Upstream guidance\n\n[ankidroid/Anki-Android](https://github.com/ankidroid/Anki-Android)'s own instructions.\n"
+    ));
 }
 
 #[test]
