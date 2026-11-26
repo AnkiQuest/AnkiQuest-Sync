@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 //! An upstream's own agent instructions, kept verbatim at the end of a
-//! fork's AGENTS.md.
+//! fork's AGENTS.md, after an introduction from AnkiQuest-Agents
+//! (`upstream.md`).
 
 use std::fs;
 use std::path::Path;
@@ -11,6 +12,9 @@ pub const HEADING: &str = "## Upstream guidance";
 
 /// The files read from an upstream, in this order.
 pub const FILES: [&str; 2] = ["CLAUDE.md", "AGENTS.md"];
+
+/// Stands for the upstream's `owner/repo` in the introduction.
+pub const UPSTREAM: &str = "{upstream}";
 
 /// One upstream's guidance files, pointers and duplicates left out.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -56,18 +60,15 @@ impl Guidance {
         }
     }
 
-    /// The section, or nothing when upstream has no guidance of its own.
-    pub fn section(&self) -> String {
+    /// The section, or nothing when upstream has no guidance of its own:
+    /// HEADING, `intro` with UPSTREAM replaced, then each file.
+    pub fn section(&self, intro: &str) -> String {
         if self.files.is_empty() {
             return String::new();
         }
         let up = &self.upstream;
-        let mut out = format!(
-            "{HEADING}\n\n[{up}](https://github.com/{up})'s own instructions, kept verbatim. \
-             They apply to upstream's code where the rules above don't override them. \
-             AnkiQuest-Sync copies them from the upstream commit `master` last merged; \
-             don't edit them here.\n"
-        );
+        let intro = intro.trim().replace(UPSTREAM, up);
+        let mut out = format!("{HEADING}\n\n{intro}\n");
         for (name, text) in &self.files {
             out.push_str(&format!("\n<!-- {up}: {name} -->\n\n{text}\n"));
         }
@@ -101,6 +102,8 @@ pub fn of(agents: &str) -> &str {
 mod tests {
     use super::*;
 
+    const INTRO: &str = "[{upstream}](https://github.com/{upstream})'s own instructions.\n";
+
     fn guidance(texts: &[(&str, &str)]) -> Guidance {
         let texts: Vec<(&str, String)> = texts.iter().map(|(n, t)| (*n, (*t).to_owned())).collect();
         Guidance::new("ankidroid/Anki-Android", &texts)
@@ -113,7 +116,7 @@ mod tests {
             ("CLAUDE.md", "@AGENTS.md\n"),
             ("AGENTS.md", "- Follow the AI policy.\n"),
         ]);
-        let section = g.section();
+        let section = g.section(INTRO);
         assert!(
             section.contains(
                 "<!-- ankidroid/Anki-Android: AGENTS.md -->\n\n- Follow the AI policy.\n"
@@ -130,7 +133,7 @@ mod tests {
             ("AGENTS.md", "CLAUDE.md"),
         ]);
         assert!(
-            !g.section()
+            !g.section(INTRO)
                 .contains("<!-- ankidroid/Anki-Android: AGENTS.md -->")
         );
     }
@@ -140,7 +143,7 @@ mod tests {
         // The contents API follows the symlink and returns the same text
         let text = "# Claude Code\n\nRun just check.\n";
         let g = guidance(&[("CLAUDE.md", text), ("AGENTS.md", text)]);
-        assert_eq!(g.section().matches("Run just check.").count(), 1);
+        assert_eq!(g.section(INTRO).matches("Run just check.").count(), 1);
     }
 
     #[test]
@@ -149,7 +152,7 @@ mod tests {
             ("CLAUDE.md", "Claude rules\n"),
             ("AGENTS.md", "Agent rules\n"),
         ]);
-        let section = g.section();
+        let section = g.section(INTRO);
         let claude = section.find("Claude rules").unwrap();
         let agents = section.find("Agent rules").unwrap();
         assert!(claude < agents);
@@ -158,13 +161,21 @@ mod tests {
     #[test]
     fn keeps_one_line_prose() {
         let g = guidance(&[("AGENTS.md", "Run the tests before you push.")]);
-        assert!(g.section().contains("Run the tests before you push."));
+        assert!(g.section(INTRO).contains("Run the tests before you push."));
     }
 
     #[test]
     fn empty_without_files() {
-        assert_eq!(guidance(&[]).section(), "");
-        assert_eq!(guidance(&[("CLAUDE.md", "@AGENTS.md")]).section(), "");
+        assert_eq!(guidance(&[]).section(INTRO), "");
+        assert_eq!(guidance(&[("CLAUDE.md", "@AGENTS.md")]).section(INTRO), "");
+    }
+
+    #[test]
+    fn names_the_upstream() {
+        let g = guidance(&[("CLAUDE.md", "rules\n")]);
+        assert!(g.section(INTRO).starts_with(
+            "## Upstream guidance\n\n[ankidroid/Anki-Android](https://github.com/ankidroid/Anki-Android)'s own instructions.\n\n<!-- "
+        ));
     }
 
     #[test]

@@ -42,8 +42,13 @@ The `agents` job (`.github/workflows/agents.yml`) writes each repository's
 with an "Upstream guidance" section: upstream's own `CLAUDE.md` and
 `AGENTS.md`, verbatim, at the upstream commit the fork last merged (files that
 only point at another, such as `@AGENTS.md` or a symlink, and duplicates are
-left out). The `sync` job writes that section; this job keeps it as the fork's
-branch has it, so the two never change the same text. `CLAUDE.md` is
+left out), introduced by AnkiQuest-Agents' `upstream.md`. The forks are those
+in `forks.json`; `fork-sync agents ... merged` finds the commit (the merge base
+of the fork's branch and upstream's) and reads the files through the GitHub
+API. The `sync` job writes the same section when it merges that commit, so this
+job changes it only when `upstream.md` changes or a branch's copy is out of
+date (edited by hand, or written in an older format); new upstream text
+arrives with the sync pull request. `CLAUDE.md` is
 `@AGENTS.md` in every repository. Where either differs, it commits both,
 `chore(agents): update AGENTS.md from AnkiQuest-Agents`, and pushes the commit
 straight to the default branch as a fast-forward: the rules were reviewed in
