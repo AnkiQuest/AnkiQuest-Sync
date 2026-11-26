@@ -265,3 +265,64 @@ impl GitHub for Gh {
         Ok(())
     }
 }
+
+impl crate::land::Pulls for Gh {
+    fn default_branch(&self, repo: &str) -> Result<String, String> {
+        GitHub::default_branch(self, repo)
+    }
+
+    fn open_pull(&self, repo: &str, branch: &str) -> Result<Option<Pull>, String> {
+        GitHub::open_pull(self, repo, branch)
+    }
+
+    fn create_pull(&self, repo: &str, pull: &NewPull) -> Result<Pull, String> {
+        let url = GitHub::create_pull(self, repo, pull)?;
+        let number = url
+            .rsplit('/')
+            .next()
+            .and_then(|n| n.parse().ok())
+            .ok_or_else(|| format!("{repo}: no pull request number in {url}"))?;
+        Ok(Pull {
+            number,
+            title: pull.title.clone(),
+            html_url: url,
+        })
+    }
+
+    fn edit_pull(&self, repo: &str, number: u64, title: &str, body: &str) -> Result<(), String> {
+        GitHub::edit_pull(self, repo, number, title, body)
+    }
+
+    fn close_pull(&self, repo: &str, number: u64, comment: &str) -> Result<(), String> {
+        let comments = format!("repos/{repo}/issues/{number}/comments");
+        let comment = format!("body={comment}");
+        self.api(repo, &[&comments, "-f", &comment, "--silent"])?;
+
+        let path = format!("repos/{repo}/pulls/{number}");
+        self.api(
+            repo,
+            &["-X", "PATCH", &path, "-f", "state=closed", "--silent"],
+        )?;
+        Ok(())
+    }
+
+    /// `gh pr merge --auto`: auto-merge has no REST endpoint. Where the base
+    /// branch has a merge queue, the pull request joins it and the queue's
+    /// merge method applies.
+    fn auto_merge(&self, repo: &str, number: u64) -> Result<(), String> {
+        let number = number.to_string();
+        let args = ["pr", "merge", &number, "--repo", repo, "--auto", "--squash"];
+        let out = Command::new("gh")
+            .args(args)
+            .output()
+            .map_err(|e| format!("gh: {e}"))?;
+        if out.status.success() {
+            return Ok(());
+        }
+        Err(format!(
+            "#{number}: auto-merge could not be turned on (allow auto-merge in the \
+             repository's settings): {}",
+            String::from_utf8_lossy(&out.stderr).trim()
+        ))
+    }
+}

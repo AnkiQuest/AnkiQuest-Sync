@@ -42,7 +42,7 @@ jobs:
       actionlint: true
       zizmor: true
       run: |
-        jq empty watched.json art-consumers.json forks.json
+        jq empty watched.json art-consumers.json forks.json mirrors.json
         for tool in tools/art-pin tools/fork-sync tools/source-watch; do
           (
             cd "$tool"

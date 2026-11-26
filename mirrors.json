@@ -1,0 +1,9 @@
+[
+  {
+    "source": "ankidroid/Anki-Android",
+    "ref": "main",
+    "target": "AnkiQuest/AnkiQuest-Android",
+    "branch": "upstream-main",
+    "why": "the base of the upstream/* branches proposed to AnkiDroid"
+  }
+]

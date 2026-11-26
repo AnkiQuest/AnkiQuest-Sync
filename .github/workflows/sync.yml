@@ -28,11 +28,19 @@
 # where the fork has issues disabled), closed once `reviewed` is updated.
 # tools/source-watch holds the logic.
 #
+# mirror (mirrors.json): branches of ours that mirror a source branch, such
+# as AnkiQuest-Android's upstream-main (ankidroid/Anki-Android main). Each is
+# pushed to the source's commit directly, without a pull request; a default
+# branch is never one. The push is never forced: if the source was
+# force-pushed or someone pushed to the mirror, the job fails and the branch
+# stays as it is. tools/source-watch holds the logic.
+#
 # FORK_SYNC_TOKEN: fine-grained token for the AnkiQuest organisation with Contents,
 # Workflows, Pull requests and Issues read and write on every fork, and Contents
 # read on AnkiQuest-Agents. GITHUB_TOKEN can't be used: it cannot write to other
 # repositories, cannot push upstream commits that change workflows, and pull requests
-# it opens start no CI.
+# it opens start no CI. The mirror job pushes with the same Contents and
+# Workflows write on each mirror's target (a fork).
 name: Sync forks with upstream
 
 on:
@@ -245,3 +253,32 @@ jobs:
         run: |
           gh auth setup-git
           source-watch report watched.json "$GITHUB_REPOSITORY" "$GITHUB_STEP_SUMMARY" "$RUNNER_TEMP/watch"
+
+  mirror:
+    runs-on: ubuntu-latest
+    # A first run fetches the source's whole history
+    timeout-minutes: 30
+    env:
+      GH_TOKEN: ${{ secrets.FORK_SYNC_TOKEN }}
+    steps:
+      - name: Require the sync token
+        run: |
+          if [ -z "$GH_TOKEN" ]; then
+            echo "::error::Set FORK_SYNC_TOKEN (see the comment at the top of this workflow)."
+            exit 1
+          fi
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Build source-watch
+        run: |
+          cargo build -q --locked --release --manifest-path tools/source-watch/Cargo.toml
+          echo "$PWD/tools/source-watch/target/release" >> "$GITHUB_PATH"
+
+      # git authenticates with GH_TOKEN through gh
+      - name: Move the mirrors
+        run: |
+          gh auth setup-git
+          source-watch mirror mirrors.json https://github.com "$GITHUB_STEP_SUMMARY" "$RUNNER_TEMP/mirror"
