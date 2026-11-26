@@ -10,53 +10,61 @@
 set -euo pipefail
 
 GROUP=org.ankiquest
+# The repository path of the group: org/ankiquest
+GROUP_PATH=${GROUP//.//}
 # New artefact names first; the names carried before the rename fall back,
 # so versions published before it keep working.
 ANDROID="ankiquest-backend-android anki-backend-android"
-CORE="ankiquest-backend-core"
+CORE="ankiquest-backend-core anki-backend-core"
 TESTING="ankiquest-android-backend-testing anki-android-backend-testing"
+# How long `wait` polls; the check runs it with 0
+WAIT_MINUTES=${WAIT_MINUTES:-20}
 
 pom_url() { # <coordinate> <version> -> prints the pom's URL
-  echo "https://repo1.maven.org/maven2/org/$GROUP/$1/$2/$1-$2.pom"
+  echo "https://repo1.maven.org/maven2/$GROUP_PATH/$1/$2/$1-$2.pom"
 }
 
-metadata() { # <coordinate> -> prints <latest>, empty when not published
-  curl -sf "https://repo1.maven.org/maven2/org/$GROUP/$1/maven-metadata.xml" \
-    | sed -n 's:.*<latest>\(.*\)</latest>.*:\1:p' || true
+versions() { # <coordinate> -> prints every version its metadata lists
+  curl -sf "https://repo1.maven.org/maven2/$GROUP_PATH/$1/maven-metadata.xml" \
+    | sed -n 's:.*<version>\(.*\)</version>.*:\1:p' || true
+}
+
+served() { # <version> -> succeeds when all three artefacts' poms are served
+  for fam in "$ANDROID" "$CORE" "$TESTING"; do
+    ok=0
+    for coord in $fam; do
+      if curl -sfI "$(pom_url "$coord" "$1")" > /dev/null; then
+        ok=1
+        break
+      fi
+    done
+    [ "$ok" = 1 ] || return 1
+  done
 }
 
 case "${1:-}" in
   latest)
-    shift
+    # Newest first; a version missing an artefact (a cancelled publish
+    # run) is skipped
     for coord in $ANDROID; do
-      found=$(metadata "$coord")
-      if [ -n "$found" ]; then
-        echo "$found"
-        exit 0
+      versions "$coord"
+    done | sort -uVr | while read -r version; do
+      if served "$version"; then
+        echo "$version"
+        break
       fi
     done
     ;;
   wait)
     version=$2
-    deadline=$(( $(date +%s) + 20 * 60 ))
+    deadline=$(( $(date +%s) + WAIT_MINUTES * 60 ))
     while true; do
-      served=1
-      for fam in "$ANDROID" "$CORE" "$TESTING"; do
-        ok=0
-        for coord in $fam; do
-          if curl -sfI "$(pom_url "$coord" "$version")" > /dev/null; then
-            ok=1
-            break
-          fi
-        done
-        [ "$ok" = 1 ] || served=0
-      done
-      if [ "$served" = 1 ]; then
+      if served "$version"; then
         echo "Maven Central serves $version"
         exit 0
       fi
       if [ "$(date +%s)" -ge "$deadline" ]; then
-        echo "::error::Maven Central does not serve $version after 20 minutes" >&2
+        echo "::error::Maven Central does not serve $version after $WAIT_MINUTES minutes" >&2
         exit 1
       fi
       sleep 15

@@ -51,4 +51,10 @@ jobs:
             cargo test --locked
           )
         done
+
+        # backend-bump.sh reads Maven Central: the newest backend must be
+        # found, and a version published already must count as served
+        latest=$(tools/backend-bump.sh latest)
+        test -n "$latest"
+        WAIT_MINUTES=0 tools/backend-bump.sh wait "$latest"
       timeout-minutes: 20
